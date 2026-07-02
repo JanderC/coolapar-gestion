@@ -12,10 +12,12 @@
 
 .ledger-page {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   background-color: var(--papel, #f3ecd9);
   font-family: 'Inter', sans-serif;
   color: #3b2f2a;
+  overflow-x: hidden;
 }
 
 /* ---------- Panel izquierdo: ilustración de la finca ---------- */
@@ -278,30 +280,130 @@
   }
 }
 
-/* ---------- Responsive ---------- */
+/* ---------- Responsive: tablet (≤860px) ---------- */
 @media (max-width: 860px) {
   .ledger-page {
     flex-direction: column;
   }
+
   .ledger-scene {
-    min-height: 220px;
+    min-height: 190px;
     flex: none;
   }
+
   .ledger-tagline {
-    top: 1.5rem;
+    top: 1.25rem;
     left: 1.5rem;
     right: 1.5rem;
   }
+
+  .ledger-tagline .eyebrow {
+    font-size: 0.66rem;
+  }
+
   .ledger-tagline h2 {
-    font-size: 1.3rem;
+    font-size: 1.2rem;
   }
+
   .ledger-form-panel {
-    padding: 1.5rem;
+    padding: 1.5rem 1.25rem 2.5rem;
   }
+
   .ledger-book {
     box-shadow: 0 12px 30px rgba(59, 47, 42, 0.14);
+    padding: 2.25rem 1.75rem 1.75rem;
   }
+
   .ledger-book::before {
     display: none;
+  }
+}
+
+/* ---------- Responsive: teléfono (≤480px) ---------- */
+@media (max-width: 480px) {
+  .ledger-scene {
+    min-height: 150px;
+  }
+
+  /* En pantallas muy angostas, la ilustracion pasa a segundo plano
+     y solo dejamos el texto para no saturar la vista */
+  .ledger-scene svg {
+    opacity: 0.55;
+  }
+
+  .ledger-tagline {
+    top: 1rem;
+    left: 1.25rem;
+    right: 1.25rem;
+    max-width: none;
+  }
+
+  .ledger-tagline h2 {
+    font-size: 1.05rem;
+    line-height: 1.3;
+  }
+
+  .ledger-form-panel {
+    padding: 1.25rem 1rem 2rem;
+  }
+
+  .ledger-book {
+    padding: 1.85rem 1.35rem 1.5rem;
+    border-radius: 10px;
+  }
+
+  .ledger-logo {
+    width: 92px;
+    height: 92px;
+  }
+
+  .ledger-brand-mark {
+    font-size: 0.62rem;
+    margin-bottom: 1.35rem;
+    letter-spacing: 0.15em;
+  }
+
+  .ledger-field {
+    margin-bottom: 1.3rem;
+  }
+
+  .ledger-field input {
+    font-size: 0.98rem;
+    /* evita el zoom automatico de iOS en inputs con font-size < 16px,
+       pero mantenemos el look de renglon de cuaderno */
+    font-size: max(0.98rem, 16px);
+  }
+
+  .ledger-error {
+    font-size: 0.78rem;
+  }
+
+  /* El sello se centra debajo del texto de ayuda en vez de ir al lado,
+     asi ambos elementos tienen espacio para respirar */
+  .ledger-submit-row {
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 1.75rem;
+  }
+
+  .ledger-submit-hint {
+    text-align: center;
+    max-width: 220px;
+  }
+
+  .wax-seal-btn {
+    width: 76px;
+    height: 76px;
+    font-size: 0.66rem;
+  }
+}
+
+@media (max-width: 340px) {
+  .ledger-tagline h2 {
+    display: none;
+  }
+  .ledger-scene {
+    min-height: 90px;
   }
 }
