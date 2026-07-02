@@ -9,6 +9,7 @@ body {
 
 .sidebar .nav-link {
   color: #e8f0e3;
+  padding: 0.6rem 0.75rem;
 }
 
 .sidebar .nav-link:hover,
@@ -16,6 +17,27 @@ body {
   background-color: #4f7942;
   color: #ffffff;
   border-radius: 6px;
+}
+
+/* Panel deslizante del menu en mobile */
+.sidebar-offcanvas {
+  background-color: #2f5233;
+  max-width: 280px;
+}
+
+.sidebar-offcanvas-header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.sidebar-offcanvas .sidebar {
+  min-height: auto;
+}
+
+/* Evita que el contenido quede detras del navbar sticky al abrir el menu */
+@media (max-width: 767.98px) {
+  .sidebar {
+    min-height: auto;
+  }
 }
 
 .badge-color-dot {

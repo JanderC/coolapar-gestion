@@ -19,13 +19,19 @@ const enlaces = [
   { to: '/devoluciones', label: 'Devoluciones', roles: null },
 ];
 
-const Sidebar = () => {
+const Sidebar = ({ onNavigate, mostrarEncabezado = true }) => {
   return (
-    <div className="sidebar p-3">
-      <h5 className="text-white mb-4 text-center">🧀 COOLAPAR</h5>
+    <div className="sidebar p-3 h-100">
+      {mostrarEncabezado && <h5 className="text-white mb-4 text-center">🧀 COOLAPAR</h5>}
       <Nav className="flex-column gap-1">
         {enlaces.map((enlace) => (
-          <Nav.Link key={enlace.to} as={NavLink} to={enlace.to} end={enlace.to === '/'}>
+          <Nav.Link
+            key={enlace.to}
+            as={NavLink}
+            to={enlace.to}
+            end={enlace.to === '/'}
+            onClick={onNavigate}
+          >
             {enlace.label}
           </Nav.Link>
         ))}
