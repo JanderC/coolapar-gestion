@@ -4,11 +4,13 @@ import * as proveedoresApi from '../../api/proveedores.api';
 import * as comprasApi from '../../api/comprasProveedores.api';
 import * as insumosApi from '../../api/insumos.api';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
+import { useMoneda } from '../../context/MonedaContext';
 
 const formProveedorVacio = { nombre: '', tipo_suministro: '', telefono: '', direccion: '', contacto: '' };
 const formCompraVacio = { proveedor_id: '', insumo_id: '', fecha: '', cantidad: '', costo_unitario: '', observaciones: '' };
 
 const Proveedores = () => {
+  const { formatearMonto } = useMoneda();
   const [proveedores, setProveedores] = useState([]);
   const [compras, setCompras] = useState([]);
   const [insumos, setInsumos] = useState([]);
@@ -185,7 +187,7 @@ const Proveedores = () => {
                   <td>
                     {c.cantidad} {c.Insumo?.unidad_medida || ''}
                   </td>
-                  <td>Bs. {c.costo_total}</td>
+                  <td>{formatearMonto(c.costo_total)}</td>
                 </tr>
               ))}
               {compras.length === 0 && (
