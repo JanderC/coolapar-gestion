@@ -3,12 +3,14 @@ import { Table, Button, Modal, Form, Alert, Badge } from 'react-bootstrap';
 import * as productoresApi from '../../api/productores.api';
 import ColorBadge from '../../components/common/ColorBadge';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
+import { useMoneda } from '../../context/MonedaContext';
 
 const coloresSugeridos = ['#E53935', '#1E88E5', '#43A047', '#FB8C00', '#8E24AA', '#00897B', '#6D4C41', '#3949AB'];
 
 const formVacio = { nombre: '', color_identificativo: coloresSugeridos[0], telefono: '', direccion: '', precio_litro_base: '' };
 
 const Productores = () => {
+  const { formatearMonto } = useMoneda();
   const [productores, setProductores] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
@@ -111,7 +113,7 @@ const Productores = () => {
               </td>
               <td>{p.telefono || '—'}</td>
               <td>{p.direccion || '—'}</td>
-              <td>{p.precio_litro_base ? `Bs. ${p.precio_litro_base}` : '—'}</td>
+              <td>{p.precio_litro_base ? formatearMonto(p.precio_litro_base) : '—'}</td>
               <td>
                 <Badge bg={p.activo ? 'success' : 'secondary'}>{p.activo ? 'Activo' : 'Inactivo'}</Badge>
               </td>
@@ -193,12 +195,15 @@ const Productores = () => {
 
             <Form.Group>
               <Form.Label>Precio por litro base</Form.Label>
-              <Form.Control
-                type="number"
-                step="0.01"
-                value={form.precio_litro_base}
-                onChange={(e) => setForm({ ...form, precio_litro_base: e.target.value })}
-              />
+              <div className="d-flex align-items-center gap-2">
+                <span className="text-muted">{formatearMonto(0).split(' ')[0]}</span>
+                <Form.Control
+                  type="number"
+                  step="0.01"
+                  value={form.precio_litro_base}
+                  onChange={(e) => setForm({ ...form, precio_litro_base: e.target.value })}
+                />
+              </div>
             </Form.Group>
           </Modal.Body>
           <Modal.Footer>
