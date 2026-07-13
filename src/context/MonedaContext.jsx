@@ -4,10 +4,10 @@ import * as configuracionApi from '../api/configuracion.api';
 const MonedaContext = createContext(null);
 
 // Simbolos de respaldo (por si el backend aun no responde al montar la app)
-const SIMBOLOS_RESPALDO = { BOB: 'Bs.', USD: '$', COP: 'COL$' };
+const SIMBOLOS_RESPALDO = { BS: 'Bs.', USD: '$', COP: 'COL$' };
 
 export const MonedaProvider = ({ children }) => {
-  const [moneda, setMoneda] = useState('BOB');
+  const [moneda, setMoneda] = useState('BS');
   const [monedasDisponibles, setMonedasDisponibles] = useState({});
   const [cargando, setCargando] = useState(true);
 
@@ -17,7 +17,7 @@ export const MonedaProvider = ({ children }) => {
       setMoneda(data.moneda_actual);
       setMonedasDisponibles(data.monedas_disponibles || {});
     } catch (err) {
-      // Si falla (ej. no autenticado todavia), se queda con BOB por defecto.
+      // Si falla (ej. no autenticado todavia), se queda con BS por defecto.
       console.error('No se pudo cargar la configuracion de moneda:', err);
     } finally {
       setCargando(false);

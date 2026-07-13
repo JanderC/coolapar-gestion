@@ -13,11 +13,11 @@ const formVacio = {
   telefono: '',
   direccion: '',
   precio_litro_base: '',
-  moneda: 'BOB',
+  moneda: 'BS',
 };
 
 const OPCIONES_MONEDA = [
-  { codigo: 'BOB', etiqueta: 'Bs. — Bolivianos' },
+  { codigo: 'BS', etiqueta: 'Bs. — Bolivares' },
   { codigo: 'USD', etiqueta: '$ — Dólares' },
   { codigo: 'COP', etiqueta: 'COL$ — Pesos colombianos' },
 ];
