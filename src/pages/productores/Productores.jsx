@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Table, Button, Modal, Form, Alert, Badge } from 'react-bootstrap';
 import * as productoresApi from '../../api/productores.api';
+import * as rutasApi from '../../api/rutas.api';
 import ColorBadge from '../../components/common/ColorBadge';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { useMoneda } from '../../context/MonedaContext';
@@ -9,15 +10,17 @@ const coloresSugeridos = ['#E53935', '#1E88E5', '#43A047', '#FB8C00', '#8E24AA',
 
 const formVacio = {
   nombre: '',
-  color_identificativo: coloresSugeridos[0],
+  ruta_id: '',
   telefono: '',
   direccion: '',
   precio_litro_base: '',
   moneda: 'BS',
 };
 
+const formRutaVacio = { nombre: '', color_identificativo: coloresSugeridos[0], procedencia: '', descripcion: '' };
+
 const OPCIONES_MONEDA = [
-  { codigo: 'BS', etiqueta: 'Bs. — Bolivares' },
+  { codigo: 'BS', etiqueta: 'Bs. — Bolívares' },
   { codigo: 'USD', etiqueta: '$ — Dólares' },
   { codigo: 'COP', etiqueta: 'COL$ — Pesos colombianos' },
 ];
@@ -25,6 +28,7 @@ const OPCIONES_MONEDA = [
 const Productores = () => {
   const { formatearMontoEnMoneda } = useMoneda();
   const [productores, setProductores] = useState([]);
+  const [rutas, setRutas] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
   const [mostrarModal, setMostrarModal] = useState(false);
@@ -32,11 +36,21 @@ const Productores = () => {
   const [form, setForm] = useState(formVacio);
   const [guardando, setGuardando] = useState(false);
 
+  // Modal rapido para crear una ruta/zona nueva sin salir de esta pantalla
+  const [mostrarModalRuta, setMostrarModalRuta] = useState(false);
+  const [formRuta, setFormRuta] = useState(formRutaVacio);
+  const [guardandoRuta, setGuardandoRuta] = useState(false);
+  const [errorRuta, setErrorRuta] = useState('');
+
   const cargar = async () => {
     setCargando(true);
     try {
-      const { data } = await productoresApi.listarProductores();
-      setProductores(data);
+      const [{ data: p }, { data: r }] = await Promise.all([
+        productoresApi.listarProductores(),
+        rutasApi.listarRutas(),
+      ]);
+      setProductores(p);
+      setRutas(r);
     } catch (err) {
       setError('No se pudieron cargar los productores.');
     } finally {
@@ -58,11 +72,11 @@ const Productores = () => {
     setEditandoId(productor.id);
     setForm({
       nombre: productor.nombre,
-      color_identificativo: productor.color_identificativo,
+      ruta_id: productor.ruta_id || '',
       telefono: productor.telefono || '',
       direccion: productor.direccion || '',
       precio_litro_base: productor.precio_litro_base || '',
-      moneda: productor.moneda || 'BOB',
+      moneda: productor.moneda || 'BS',
     });
     setMostrarModal(true);
   };
@@ -92,6 +106,28 @@ const Productores = () => {
     await cargar();
   };
 
+  const abrirNuevaRuta = () => {
+    setFormRuta(formRutaVacio);
+    setErrorRuta('');
+    setMostrarModalRuta(true);
+  };
+
+  const guardarRuta = async (e) => {
+    e.preventDefault();
+    setGuardandoRuta(true);
+    setErrorRuta('');
+    try {
+      const { data: nuevaRuta } = await rutasApi.crearRuta(formRuta);
+      await cargar();
+      setForm((prev) => ({ ...prev, ruta_id: nuevaRuta.id }));
+      setMostrarModalRuta(false);
+    } catch (err) {
+      setErrorRuta(err.response?.data?.message || 'No se pudo crear la ruta.');
+    } finally {
+      setGuardandoRuta(false);
+    }
+  };
+
   if (cargando) return <LoadingSpinner mensaje="Cargando productores..." />;
 
   return (
@@ -99,7 +135,9 @@ const Productores = () => {
       <div className="d-flex justify-content-between align-items-center mb-3">
         <div>
           <h4 className="mb-0">Productores</h4>
-          <p className="text-muted mb-0">Cada productor tiene un color distintivo para identificarlo en el sistema.</p>
+          <p className="text-muted mb-0">
+            El color identifica la ruta/zona de procedencia (varios productores comparten ruta), no al productor individual.
+          </p>
         </div>
         <Button variant="success" onClick={abrirNuevo}>
           + Nuevo productor
@@ -112,6 +150,7 @@ const Productores = () => {
         <thead>
           <tr>
             <th>Productor</th>
+            <th>Ruta / Procedencia</th>
             <th>Teléfono</th>
             <th>Dirección</th>
             <th>Precio litro base</th>
@@ -122,8 +161,16 @@ const Productores = () => {
         <tbody>
           {productores.map((p) => (
             <tr key={p.id}>
+              <td>{p.nombre}</td>
               <td>
-                <ColorBadge color={p.color_identificativo} texto={p.nombre} />
+                {p.Ruta ? (
+                  <div>
+                    <ColorBadge color={p.Ruta.color_identificativo} texto={p.Ruta.nombre} />
+                    {p.Ruta.procedencia && <div className="text-muted small mt-1">{p.Ruta.procedencia}</div>}
+                  </div>
+                ) : (
+                  <span className="text-muted">Sin ruta asignada</span>
+                )}
               </td>
               <td>{p.telefono || '—'}</td>
               <td>{p.direccion || '—'}</td>
@@ -145,7 +192,7 @@ const Productores = () => {
           ))}
           {productores.length === 0 && (
             <tr>
-              <td colSpan={6} className="text-center text-muted py-4">
+              <td colSpan={7} className="text-center text-muted py-4">
                 Aún no hay productores registrados.
               </td>
             </tr>
@@ -171,24 +218,32 @@ const Productores = () => {
             </Form.Group>
 
             <Form.Group className="mb-3">
-              <Form.Label>Color identificativo</Form.Label>
-              <div className="d-flex gap-2 flex-wrap">
-                {coloresSugeridos.map((c) => (
-                  <span
-                    key={c}
-                    onClick={() => setForm({ ...form, color_identificativo: c })}
-                    style={{
-                      backgroundColor: c,
-                      width: 28,
-                      height: 28,
-                      borderRadius: '50%',
-                      cursor: 'pointer',
-                      display: 'inline-block',
-                      border: form.color_identificativo === c ? '3px solid #333' : '2px solid #ddd',
-                    }}
-                  />
-                ))}
+              <Form.Label>Ruta / Zona</Form.Label>
+              <div className="d-flex align-items-center gap-2">
+                <Form.Select
+                  value={form.ruta_id}
+                  onChange={(e) => setForm({ ...form, ruta_id: e.target.value })}
+                  required
+                >
+                  <option value="">Selecciona una ruta</option>
+                  {rutas.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.nombre} {r.procedencia ? `— ${r.procedencia}` : ''}
+                    </option>
+                  ))}
+                </Form.Select>
+                <Button size="sm" variant="outline-primary" className="text-nowrap" onClick={abrirNuevaRuta}>
+                  + Ruta
+                </Button>
               </div>
+              {form.ruta_id && (
+                <div className="mt-2">
+                  <ColorBadge
+                    color={rutas.find((r) => r.id === Number(form.ruta_id))?.color_identificativo || '#ccc'}
+                    texto={rutas.find((r) => r.id === Number(form.ruta_id))?.nombre || ''}
+                  />
+                </div>
+              )}
             </Form.Group>
 
             <Form.Group className="mb-3">
@@ -236,6 +291,75 @@ const Productores = () => {
             </Button>
             <Button variant="success" type="submit" disabled={guardando}>
               {guardando ? 'Guardando...' : 'Guardar'}
+            </Button>
+          </Modal.Footer>
+        </Form>
+      </Modal>
+
+      <Modal show={mostrarModalRuta} onHide={() => setMostrarModalRuta(false)} centered>
+        <Form onSubmit={guardarRuta}>
+          <Modal.Header closeButton>
+            <Modal.Title>Nueva ruta / zona</Modal.Title>
+          </Modal.Header>
+          <Modal.Body>
+            {errorRuta && <Alert variant="danger">{errorRuta}</Alert>}
+
+            <Form.Group className="mb-3">
+              <Form.Label>Nombre de la ruta</Form.Label>
+              <Form.Control
+                value={formRuta.nombre}
+                onChange={(e) => setFormRuta({ ...formRuta, nombre: e.target.value })}
+                placeholder="Ej: Ruta Tarazona"
+                required
+              />
+            </Form.Group>
+
+            <Form.Group className="mb-3">
+              <Form.Label>Color identificativo</Form.Label>
+              <div className="d-flex gap-2 flex-wrap">
+                {coloresSugeridos.map((c) => (
+                  <span
+                    key={c}
+                    onClick={() => setFormRuta({ ...formRuta, color_identificativo: c })}
+                    style={{
+                      backgroundColor: c,
+                      width: 28,
+                      height: 28,
+                      borderRadius: '50%',
+                      cursor: 'pointer',
+                      display: 'inline-block',
+                      border: formRuta.color_identificativo === c ? '3px solid #333' : '2px solid #ddd',
+                    }}
+                  />
+                ))}
+              </div>
+            </Form.Group>
+
+            <Form.Group className="mb-3">
+              <Form.Label>Procedencia (de dónde vienen)</Form.Label>
+              <Form.Control
+                value={formRuta.procedencia}
+                onChange={(e) => setFormRuta({ ...formRuta, procedencia: e.target.value })}
+                placeholder="Ej: Zona norte, comunidad El Rosario"
+              />
+            </Form.Group>
+
+            <Form.Group>
+              <Form.Label>Descripción (opcional)</Form.Label>
+              <Form.Control
+                as="textarea"
+                rows={2}
+                value={formRuta.descripcion}
+                onChange={(e) => setFormRuta({ ...formRuta, descripcion: e.target.value })}
+              />
+            </Form.Group>
+          </Modal.Body>
+          <Modal.Footer>
+            <Button variant="light" onClick={() => setMostrarModalRuta(false)}>
+              Cancelar
+            </Button>
+            <Button variant="success" type="submit" disabled={guardandoRuta}>
+              {guardandoRuta ? 'Guardando...' : 'Guardar ruta'}
             </Button>
           </Modal.Footer>
         </Form>
