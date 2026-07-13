@@ -35,6 +35,7 @@ export const MonedaProvider = ({ children }) => {
 
   const simbolo = monedasDisponibles[moneda]?.simbolo || SIMBOLOS_RESPALDO[moneda] || 'Bs.';
 
+  // Formatea usando la moneda GLOBAL del sistema
   const formatearMonto = (monto) => {
     const numero = Number(monto || 0);
     const formateado = numero.toLocaleString('es-BO', {
@@ -44,9 +45,30 @@ export const MonedaProvider = ({ children }) => {
     return `${simbolo} ${formateado}`;
   };
 
+  // Formatea un monto usando una moneda ESPECIFICA (ej. la moneda propia de un
+  // productor), independiente de la moneda global del sistema.
+  const formatearMontoEnMoneda = (monto, codigoMoneda) => {
+    const simboloEspecifico = monedasDisponibles[codigoMoneda]?.simbolo || SIMBOLOS_RESPALDO[codigoMoneda] || 'Bs.';
+    const numero = Number(monto || 0);
+    const formateado = numero.toLocaleString('es-BO', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    return `${simboloEspecifico} ${formateado}`;
+  };
+
   return (
     <MonedaContext.Provider
-      value={{ moneda, simbolo, monedasDisponibles, cargando, formatearMonto, cambiarMoneda, recargar: cargarConfiguracion }}
+      value={{
+        moneda,
+        simbolo,
+        monedasDisponibles,
+        cargando,
+        formatearMonto,
+        formatearMontoEnMoneda,
+        cambiarMoneda,
+        recargar: cargarConfiguracion,
+      }}
     >
       {children}
     </MonedaContext.Provider>

@@ -7,10 +7,23 @@ import { useMoneda } from '../../context/MonedaContext';
 
 const coloresSugeridos = ['#E53935', '#1E88E5', '#43A047', '#FB8C00', '#8E24AA', '#00897B', '#6D4C41', '#3949AB'];
 
-const formVacio = { nombre: '', color_identificativo: coloresSugeridos[0], telefono: '', direccion: '', precio_litro_base: '' };
+const formVacio = {
+  nombre: '',
+  color_identificativo: coloresSugeridos[0],
+  telefono: '',
+  direccion: '',
+  precio_litro_base: '',
+  moneda: 'BOB',
+};
+
+const OPCIONES_MONEDA = [
+  { codigo: 'BOB', etiqueta: 'Bs. — Bolivianos' },
+  { codigo: 'USD', etiqueta: '$ — Dólares' },
+  { codigo: 'COP', etiqueta: 'COL$ — Pesos colombianos' },
+];
 
 const Productores = () => {
-  const { formatearMonto } = useMoneda();
+  const { formatearMontoEnMoneda } = useMoneda();
   const [productores, setProductores] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
@@ -49,6 +62,7 @@ const Productores = () => {
       telefono: productor.telefono || '',
       direccion: productor.direccion || '',
       precio_litro_base: productor.precio_litro_base || '',
+      moneda: productor.moneda || 'BOB',
     });
     setMostrarModal(true);
   };
@@ -113,7 +127,7 @@ const Productores = () => {
               </td>
               <td>{p.telefono || '—'}</td>
               <td>{p.direccion || '—'}</td>
-              <td>{p.precio_litro_base ? formatearMonto(p.precio_litro_base) : '—'}</td>
+              <td>{p.precio_litro_base ? formatearMontoEnMoneda(p.precio_litro_base, p.moneda) : '—'}</td>
               <td>
                 <Badge bg={p.activo ? 'success' : 'secondary'}>{p.activo ? 'Activo' : 'Inactivo'}</Badge>
               </td>
@@ -196,7 +210,17 @@ const Productores = () => {
             <Form.Group>
               <Form.Label>Precio por litro base</Form.Label>
               <div className="d-flex align-items-center gap-2">
-                <span className="text-muted">{formatearMonto(0).split(' ')[0]}</span>
+                <Form.Select
+                  value={form.moneda}
+                  onChange={(e) => setForm({ ...form, moneda: e.target.value })}
+                  style={{ maxWidth: 190 }}
+                >
+                  {OPCIONES_MONEDA.map((op) => (
+                    <option key={op.codigo} value={op.codigo}>
+                      {op.etiqueta}
+                    </option>
+                  ))}
+                </Form.Select>
                 <Form.Control
                   type="number"
                   step="0.01"
