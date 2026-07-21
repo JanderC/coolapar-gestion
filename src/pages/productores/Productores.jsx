@@ -99,7 +99,7 @@ const Productores = () => {
       setGuardando(false);
     }
   };
-
+//
   const desactivar = async (id) => {
     if (!window.confirm('¿Desactivar este productor?')) return;
     await productoresApi.eliminarProductor(id);
