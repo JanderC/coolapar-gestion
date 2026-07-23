@@ -6,6 +6,8 @@ import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { useMoneda } from '../../context/MonedaContext';
 import { OPCIONES_DIA, aNumero, desempacar, diaSemanaDeFecha, formatoCorto, hoy, largoCiclo, nombreDia, vacio } from '../../utils/fechas';
 
+const LOGO_URL = 'https://coolapar-gestion.vercel.app/coolapar-logo.png';
+
 const OPCIONES_MONEDA = [
   { codigo: 'BS', etiqueta: 'Bs. — Bolívares' },
   { codigo: 'USD', etiqueta: '$ — Dólares' },
@@ -254,6 +256,136 @@ const RegistroLeche = () => {
     }
   };
 
+  // Arma una hoja imprimible con el logo y los datos de la semana actual, y
+  // dispara el diálogo de impresión del navegador. Usa un iframe oculto en
+  // vez de una ventana nueva para que no lo bloquee el navegador.
+  const imprimirHoja = () => {
+    if (!hoja) return;
+
+    const filas = dias
+      .map((d) => {
+        const litros = aNumero(d.litros, 0);
+        const litrosAcidos = aNumero(d.litros_acidos, 0);
+        const subtotal = litros * aNumero(precioLitro, 0) + litrosAcidos * aNumero(precioAcida, 0);
+        const tieneDatos = litros > 0 || litrosAcidos > 0;
+        return `
+          <tr>
+            <td>${d.dia}</td>
+            <td>${formatoCorto(d.fecha)}</td>
+            <td class="num">${litros > 0 ? litros : '—'}</td>
+            <td class="num">${litrosAcidos > 0 ? litrosAcidos : '—'}</td>
+            <td class="num">${tieneDatos ? formatearMontoEnMoneda(subtotal, moneda) : '—'}</td>
+          </tr>`;
+      })
+      .join('');
+
+    const filaAcidos =
+      totales.litrosAcidos > 0
+        ? `<div><strong>Precio leche ácida:</strong> ${formatearMontoEnMoneda(aNumero(precioAcida, 0), moneda)}</div>`
+        : '';
+
+    const estadoPago = hoja.pago
+      ? hoja.pago.estado_pago === 'pagado'
+        ? `Pagado el ${formatoCorto(hoja.pago.fecha_pago)}`
+        : 'Pago pendiente'
+      : 'Sin pago registrado';
+
+    const html = `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Registro de leche - ${productor?.nombre || ''}</title>
+<style>
+  @page { size: letter portrait; margin: 16mm; }
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #212529; margin: 0; }
+  .encabezado { display: flex; align-items: center; gap: 16px; border-bottom: 2px solid #198754; padding-bottom: 12px; margin-bottom: 16px; }
+  .encabezado img { height: 64px; width: auto; }
+  .encabezado h1 { font-size: 20px; margin: 0; color: #198754; }
+  .encabezado p { margin: 2px 0 0; color: #6c757d; font-size: 13px; }
+  .info { display: flex; flex-wrap: wrap; gap: 6px 28px; font-size: 13px; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { border: 1px solid #dee2e6; padding: 6px 8px; text-align: left; }
+  thead th { background: #f1f3f5; }
+  td.num, th.num { text-align: right; }
+  tfoot th { background: #f1f3f5; }
+  .firmas { display: flex; justify-content: space-between; margin-top: 56px; font-size: 13px; }
+  .firmas div { width: 45%; text-align: center; border-top: 1px solid #212529; padding-top: 6px; }
+  .pie { margin-top: 24px; font-size: 11px; color: #6c757d; text-align: right; }
+</style>
+</head>
+<body>
+  <div class="encabezado">
+    <img src="${LOGO_URL}" alt="Coolapar" />
+    <div>
+      <h1>COOLAPAR</h1>
+      <p>Registro diario de leche</p>
+    </div>
+  </div>
+
+  <div class="info">
+    <div><strong>Productor:</strong> ${productor?.nombre || ''}</div>
+    <div><strong>Semana:</strong> ${formatoCorto(fechaInicio)} a ${formatoCorto(dias[dias.length - 1]?.fecha)}</div>
+    <div><strong>Precio por litro:</strong> ${formatearMontoEnMoneda(aNumero(precioLitro, 0), moneda)}</div>
+    ${filaAcidos}
+    <div><strong>Estado:</strong> ${estadoPago}</div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Día</th>
+        <th>Fecha</th>
+        <th class="num">Litros buenos</th>
+        <th class="num">Litros ácidos</th>
+        <th class="num">Subtotal</th>
+      </tr>
+    </thead>
+    <tbody>${filas}</tbody>
+    <tfoot>
+      <tr>
+        <th colspan="2">Total de la semana</th>
+        <th class="num">${totales.litros} L</th>
+        <th class="num">${totales.litrosAcidos > 0 ? totales.litrosAcidos + ' L' : '—'}</th>
+        <th class="num">${formatearMontoEnMoneda(totales.pagar, moneda)}</th>
+      </tr>
+    </tfoot>
+  </table>
+
+  <div class="firmas">
+    <div>Firma del productor</div>
+    <div>Firma COOLAPAR</div>
+  </div>
+
+  <div class="pie">Impreso el ${formatoCorto(hoy())}</div>
+</body>
+</html>`;
+
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
+
+    const limpiar = () => {
+      if (document.body.contains(iframe)) document.body.removeChild(iframe);
+    };
+
+    iframe.onload = () => {
+      // Pequeña espera para que el logo termine de cargar antes de imprimir.
+      setTimeout(() => {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+      }, 300);
+    };
+
+    iframe.srcdoc = html;
+    setTimeout(limpiar, 8000); // limpieza de respaldo si el navegador no dispara afterprint
+  };
+
   if (cargando) return <LoadingSpinner mensaje="Cargando registro de leche..." />;
 
   const cerrada = hoja?.semana?.estado === 'cerrada';
@@ -448,6 +580,9 @@ const RegistroLeche = () => {
           </Table>
 
           <Card.Footer className="d-flex justify-content-end gap-2 flex-wrap">
+            <Button variant="outline-secondary" onClick={imprimirHoja}>
+              Imprimir
+            </Button>
             <Button variant="outline-success" onClick={guardarSemana} disabled={guardando || cerrada}>
               {guardando ? 'Guardando...' : 'Guardar semana'}
             </Button>
