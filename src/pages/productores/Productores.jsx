@@ -2,18 +2,15 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Table, Button, Modal, Form, Alert, Badge, InputGroup } from 'react-bootstrap';
 import * as productoresApi from '../../api/productores.api';
 import * as rutasApi from '../../api/rutas.api';
-import ColorBadge from '../../components/common/ColorBadge';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { useMoneda } from '../../context/MonedaContext';
 
-// Paleta de niveles de precio. Se pueden repetir entre productores:
-// el color agrupa a todos los que entregan la leche al mismo precio.
+// El color identifica el NIVEL DE PRECIO del productor, nada más.
+// La ruta solo agrupa por zona/procedencia; no tiene color.
 const PALETA_PRECIO = [
   '#E53935', '#FB8C00', '#FDD835', '#43A047', '#00897B',
   '#1E88E5', '#3949AB', '#8E24AA', '#6D4C41', '#546E7A',
 ];
-
-const COLORES_RUTA = ['#E53935', '#1E88E5', '#43A047', '#FB8C00', '#8E24AA', '#00897B', '#6D4C41', '#3949AB'];
 
 const OPCIONES_MONEDA = [
   { codigo: 'BS', etiqueta: 'Bs. — Bolívares' },
@@ -31,7 +28,7 @@ const formVacio = {
   color_identificativo: '',
 };
 
-const formRutaVacio = { nombre: '', color_identificativo: COLORES_RUTA[0], procedencia: '', descripcion: '' };
+const formRutaVacio = { nombre: '', procedencia: '', descripcion: '' };
 
 const vacio = (v) => v === undefined || v === null || v === '';
 
@@ -76,7 +73,6 @@ const Productores = () => {
   const [aviso, setAviso] = useState('');
 
   const [busqueda, setBusqueda] = useState('');
-  const [filtroRuta, setFiltroRuta] = useState('');
   const [verInactivos, setVerInactivos] = useState(false);
 
   const [mostrarModal, setMostrarModal] = useState(false);
@@ -85,7 +81,8 @@ const Productores = () => {
   const [guardando, setGuardando] = useState(false);
   const [errorForm, setErrorForm] = useState('');
 
-  // Modal rápido para crear una ruta/zona sin salir de esta pantalla
+  // Modal rápido para crear una ruta/zona sin salir de esta pantalla.
+  // La ruta ya no pide color.
   const [mostrarModalRuta, setMostrarModalRuta] = useState(false);
   const [formRuta, setFormRuta] = useState(formRutaVacio);
   const [guardandoRuta, setGuardandoRuta] = useState(false);
@@ -151,11 +148,10 @@ const Productores = () => {
     const texto = busqueda.trim().toLowerCase();
     return productores.filter((p) => {
       if (!verInactivos && !p.activo) return false;
-      if (filtroRuta && String(p.ruta_id) !== String(filtroRuta)) return false;
       if (texto && !p.nombre.toLowerCase().includes(texto)) return false;
       return true;
     });
-  }, [productores, busqueda, filtroRuta, verInactivos]);
+  }, [productores, busqueda, verInactivos]);
 
   const abrirNuevo = () => {
     setEditandoId(null);
@@ -278,7 +274,7 @@ const Productores = () => {
         <div>
           <h4 className="mb-1">Productores</h4>
           <p className="text-muted mb-0">
-            La ruta indica de dónde viene la leche. El color del productor indica a qué precio por litro se le paga:
+            La ruta solo indica de dónde viene la leche. El color identifica a qué precio por litro se le paga:
             todos los que cobran lo mismo llevan el mismo color.
           </p>
         </div>
@@ -317,19 +313,11 @@ const Productores = () => {
 
       <div className="d-flex flex-wrap gap-2 align-items-center mb-3">
         <Form.Control
-          style={{ maxWidth: 260 }}
-          placeholder="Buscar por nombre"
+          style={{ maxWidth: 280 }}
+          placeholder="Buscar productor por nombre"
           value={busqueda}
           onChange={(e) => setBusqueda(e.target.value)}
         />
-        <Form.Select style={{ maxWidth: 260 }} value={filtroRuta} onChange={(e) => setFiltroRuta(e.target.value)}>
-          <option value="">Todas las rutas</option>
-          {rutas.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.nombre}
-            </option>
-          ))}
-        </Form.Select>
         <Form.Check
           type="switch"
           id="ver-inactivos"
@@ -359,8 +347,8 @@ const Productores = () => {
               <td>
                 {p.Ruta ? (
                   <div>
-                    <ColorBadge color={p.Ruta.color_identificativo} texto={p.Ruta.nombre} />
-                    {p.Ruta.procedencia && <div className="text-muted small mt-1">{p.Ruta.procedencia}</div>}
+                    <div>{p.Ruta.nombre}</div>
+                    {p.Ruta.procedencia && <div className="text-muted small">{p.Ruta.procedencia}</div>}
                   </div>
                 ) : (
                   <span className="text-muted">Sin ruta asignada</span>
@@ -444,13 +432,8 @@ const Productores = () => {
                   + Ruta
                 </Button>
               </div>
-              {rutaSeleccionada && (
-                <div className="mt-2">
-                  <ColorBadge
-                    color={rutaSeleccionada.color_identificativo || '#ccc'}
-                    texto={rutaSeleccionada.nombre}
-                  />
-                </div>
+              {rutaSeleccionada?.procedencia && (
+                <Form.Text className="text-muted">{rutaSeleccionada.procedencia}</Form.Text>
               )}
             </Form.Group>
 
@@ -561,7 +544,7 @@ const Productores = () => {
         </Form>
       </Modal>
 
-      {/* ---------- Modal ruta ---------- */}
+      {/* ---------- Modal ruta (sin color) ---------- */}
       <Modal show={mostrarModalRuta} onHide={() => setMostrarModalRuta(false)} centered>
         <Form onSubmit={guardarRuta}>
           <Modal.Header closeButton>
@@ -578,34 +561,6 @@ const Productores = () => {
                 placeholder="Ej: Ruta Tarazona"
                 required
               />
-            </Form.Group>
-
-            <Form.Group className="mb-3">
-              <Form.Label>Color de la ruta</Form.Label>
-              <div className="d-flex gap-2 flex-wrap">
-                {COLORES_RUTA.map((c) => (
-                  <span
-                    key={c}
-                    role="button"
-                    tabIndex={0}
-                    aria-label={`Usar color ${c}`}
-                    onClick={() => setFormRuta({ ...formRuta, color_identificativo: c })}
-                    onKeyDown={(e) => e.key === 'Enter' && setFormRuta({ ...formRuta, color_identificativo: c })}
-                    style={{
-                      backgroundColor: c,
-                      width: 28,
-                      height: 28,
-                      borderRadius: '50%',
-                      cursor: 'pointer',
-                      display: 'inline-block',
-                      border: formRuta.color_identificativo === c ? '3px solid #333' : '2px solid #ddd',
-                    }}
-                  />
-                ))}
-              </div>
-              <Form.Text className="text-muted">
-                El color de la ruta sí es único: identifica la zona, no al productor.
-              </Form.Text>
             </Form.Group>
 
             <Form.Group className="mb-3">
