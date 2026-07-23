@@ -2,21 +2,13 @@ import React from 'react';
 import { Nav } from 'react-bootstrap';
 import { NavLink } from 'react-router-dom';
 
+// Módulos activos. El resto quedó fuera del menú a propósito;
+// el código sigue en el repo, solo no se navega.
 const enlaces = [
-  { to: '/', label: 'Panel principal', roles: null },
-  { to: '/productores', label: 'Productores', roles: null },
-  { to: '/semanas-pago', label: 'Semanas de pago', roles: null },
-  { to: '/registro-leche', label: 'Registro diario de leche', roles: null },
-  { to: '/pagos-productores', label: 'Pagos a productores', roles: null },
-  { to: '/transportadores', label: 'Transportadores', roles: null },
-  { to: '/fletes', label: 'Fletes', roles: null },
-  { to: '/recibidos', label: 'Recibidos', roles: null },
-  { to: '/produccion', label: 'Producción / % litro-kilo', roles: null },
-  { to: '/insumos', label: 'Insumos', roles: null },
-  { to: '/productos', label: 'Productos', roles: null },
-  { to: '/cuarto-frio', label: 'Cuarto frío', roles: null },
-  { to: '/proveedores', label: 'Proveedores', roles: null },
-  { to: '/devoluciones', label: 'Devoluciones', roles: null },
+  { to: '/productores', label: 'Productores' },
+  { to: '/registro-leche', label: 'Registro diario de leche' },
+  { to: '/ruteros', label: 'Ruteros' },
+  { to: '/insumos', label: 'Inventario de insumos' },
 ];
 
 const Sidebar = ({ onNavigate, mostrarEncabezado = true }) => {
@@ -25,13 +17,7 @@ const Sidebar = ({ onNavigate, mostrarEncabezado = true }) => {
       {mostrarEncabezado && <h5 className="text-white mb-4 text-center">🧀 COOLAPAR</h5>}
       <Nav className="flex-column gap-1">
         {enlaces.map((enlace) => (
-          <Nav.Link
-            key={enlace.to}
-            as={NavLink}
-            to={enlace.to}
-            end={enlace.to === '/'}
-            onClick={onNavigate}
-          >
+          <Nav.Link key={enlace.to} as={NavLink} to={enlace.to} onClick={onNavigate}>
             {enlace.label}
           </Nav.Link>
         ))}
