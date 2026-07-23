@@ -138,6 +138,54 @@ const Productores = () => {
     return nivel?.color || null;
   };
 
+  // El color que DEBE mostrar un productor es el de su nivel de precio,
+  // no el que quedó guardado en su propio registro. Si por cualquier
+  // motivo el dato individual no coincide (por ejemplo, se usó "Sugerir
+  // color" sobre un precio que ya existía), la pantalla igual pinta a
+  // todos los del mismo precio con el mismo color.
+  const colorMostrado = (p) => {
+    if (vacio(p.precio_litro_base)) return p.color_identificativo || null;
+    return colorDelNivel(p.precio_litro_base, p.moneda || 'BS') || p.color_identificativo || null;
+  };
+
+  // Productores cuyo color guardado no coincide con el de su nivel:
+  // hay que corregirlos en la base de datos para que quede consistente.
+  const desincronizados = useMemo(
+    () =>
+      productores.filter((p) => {
+        if (vacio(p.precio_litro_base)) return false;
+        const correcto = colorDelNivel(p.precio_litro_base, p.moneda || 'BS');
+        return correcto && p.color_identificativo !== correcto;
+      }),
+    [productores, niveles]
+  );
+
+  const [corrigiendo, setCorrigiendo] = useState(false);
+  const corregirColores = async () => {
+    if (desincronizados.length === 0) return;
+    if (
+      !window.confirm(
+        `Se van a igualar los colores de ${desincronizados.length} productor(es) al de su nivel de precio. ¿Continuar?`
+      )
+    )
+      return;
+
+    setCorrigiendo(true);
+    setError('');
+    try {
+      for (const p of desincronizados) {
+        const correcto = colorDelNivel(p.precio_litro_base, p.moneda || 'BS');
+        await productoresApi.actualizarProductor(p.id, { color_identificativo: correcto });
+      }
+      setAviso('Colores corregidos.');
+      await cargar();
+    } catch (err) {
+      setError(err.response?.data?.message || 'No se pudieron corregir todos los colores.');
+    } finally {
+      setCorrigiendo(false);
+    }
+  };
+
   // Primer color de la paleta que aún no representa ningún nivel de precio.
   const colorLibre = () => {
     const usados = new Set(niveles.map((n) => n.color).filter(Boolean));
@@ -296,7 +344,16 @@ const Productores = () => {
 
       {niveles.length > 0 && (
         <div className="bg-white border rounded p-3 mb-3">
-          <div className="text-muted small mb-2">Niveles de precio</div>
+          <div className="d-flex justify-content-between align-items-center mb-2">
+            <div className="text-muted small">Niveles de precio</div>
+            {desincronizados.length > 0 && (
+              <Button size="sm" variant="outline-warning" onClick={corregirColores} disabled={corrigiendo}>
+                {corrigiendo
+                  ? 'Corrigiendo...'
+                  : `Corregir ${desincronizados.length} color(es) desincronizado(s)`}
+              </Button>
+            )}
+          </div>
           <div className="d-flex flex-wrap gap-3">
             {niveles.map((n) => (
               <div key={n.clave} className="d-flex align-items-center gap-2">
@@ -361,7 +418,7 @@ const Productores = () => {
                   <span className="text-muted">Sin precio</span>
                 ) : (
                   <div className="d-flex align-items-center gap-2">
-                    <Punto color={p.color_identificativo} />
+                    <Punto color={colorMostrado(p)} />
                     <span>{formatearMontoEnMoneda(p.precio_litro_base, p.moneda)}</span>
                   </div>
                 )}
