@@ -326,8 +326,9 @@ const RegistroLeche = () => {
           <Table hover responsive className="mb-0 align-middle">
             <thead>
               <tr>
-                <th style={{ width: 220 }}>Día</th>
-                <th style={{ width: 220 }}>Litros</th>
+                <th style={{ width: 150 }}>Día</th>
+                <th style={{ width: 110 }}>Fecha</th>
+                <th style={{ width: 200 }}>Litros</th>
                 <th>Subtotal</th>
               </tr>
             </thead>
@@ -337,6 +338,7 @@ const RegistroLeche = () => {
                 return (
                   <tr key={d.fecha}>
                     <td className="fw-semibold">{d.dia}</td>
+                    <td className="text-muted">{formatoCorto(d.fecha)}</td>
                     <td>
                       <Form.Control
                         type="number"
@@ -364,7 +366,7 @@ const RegistroLeche = () => {
             </tbody>
             <tfoot className="table-light">
               <tr>
-                <th>
+                <th colSpan={2}>
                   Total de la semana
                   <div className="text-muted fw-normal small">{totales.dias} día(s) con leche</div>
                 </th>

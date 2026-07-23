@@ -390,8 +390,9 @@ const Ruteros = () => {
               <Table hover responsive className="mb-0 align-middle">
                 <thead>
                   <tr>
-                    <th style={{ width: 130 }}>Día</th>
-                    <th style={{ width: 140 }}>Litros</th>
+                    <th style={{ width: 100 }}>Día</th>
+                    <th style={{ width: 100 }}>Fecha</th>
+                    <th style={{ width: 130 }}>Litros</th>
                     <th style={{ width: 120 }}>Sobrante</th>
                     <th style={{ width: 120 }}>Faltante</th>
                     <th>Descripción</th>
@@ -401,6 +402,7 @@ const Ruteros = () => {
                   {dias.map((d) => (
                     <tr key={d.fecha}>
                       <td className="fw-semibold">{d.dia}</td>
+                      <td className="text-muted">{formatoCorto(d.fecha)}</td>
                       <td>
                         <Form.Control
                           type="number"
@@ -451,7 +453,7 @@ const Ruteros = () => {
                 </tbody>
                 <tfoot className="table-light">
                   <tr>
-                    <th>Totales</th>
+                    <th colSpan={2}>Totales</th>
                     <th>{totales.litros} litros</th>
                     <th>{totales.sobrante}</th>
                     <th>{totales.faltante}</th>
