@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Table, Button, Form, Alert, Badge, InputGroup, Card } from 'react-bootstrap';
+import { Table, Button, Form, Alert, Badge, InputGroup, Card, Modal } from 'react-bootstrap';
 import * as registroApi from '../../api/registroLeche.api';
 import * as productoresApi from '../../api/productores.api';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
@@ -256,17 +256,21 @@ const RegistroLeche = () => {
     }
   };
 
-  // Arma una hoja imprimible con el logo y los datos de la semana actual, y
-  // dispara el diálogo de impresión del navegador. Usa un iframe oculto en
-  // vez de una ventana nueva para que no lo bloquee el navegador.
-  const imprimirHoja = () => {
-    if (!hoja) return;
+  // Construye el bloque HTML (encabezado propio + tabla) de UN productor,
+  // a partir de la hoja que devuelve la API. Se reutiliza tanto si se
+  // imprime uno solo como si se imprimen varios juntos en la misma hoja.
+  const construirBloqueProductor = (datosHoja) => {
+    const p = datosHoja.productor;
+    const diasHoja = datosHoja.dias || [];
+    const precioNormal = Number(datosHoja.precio_litro || 0);
+    const precioAc = Number(datosHoja.precio_litro_acida || 0);
+    const monedaHoja = datosHoja.moneda || 'BS';
 
-    const filas = dias
+    const filas = diasHoja
       .map((d) => {
-        const litros = aNumero(d.litros, 0);
-        const litrosAcidos = aNumero(d.litros_acidos, 0);
-        const subtotal = litros * aNumero(precioLitro, 0) + litrosAcidos * aNumero(precioAcida, 0);
+        const litros = Number(d.litros || 0);
+        const litrosAcidos = Number(d.litros_acidos || 0);
+        const subtotal = Number(d.subtotal || 0);
         const tieneDatos = litros > 0 || litrosAcidos > 0;
         return `
           <tr>
@@ -274,44 +278,87 @@ const RegistroLeche = () => {
             <td>${formatoCorto(d.fecha)}</td>
             <td class="num">${litros > 0 ? litros : '—'}</td>
             <td class="num">${litrosAcidos > 0 ? litrosAcidos : '—'}</td>
-            <td class="num">${tieneDatos ? formatearMontoEnMoneda(subtotal, moneda) : '—'}</td>
+            <td class="num">${tieneDatos ? formatearMontoEnMoneda(subtotal, monedaHoja) : '—'}</td>
           </tr>`;
       })
       .join('');
 
     const filaAcidos =
-      totales.litrosAcidos > 0
-        ? `<div><strong>Precio leche ácida:</strong> ${formatearMontoEnMoneda(aNumero(precioAcida, 0), moneda)}</div>`
+      datosHoja.totales.total_litros_acidos > 0
+        ? `<div><strong>Precio leche ácida:</strong> ${formatearMontoEnMoneda(precioAc, monedaHoja)}</div>`
         : '';
 
-    const estadoPago = hoja.pago
-      ? hoja.pago.estado_pago === 'pagado'
-        ? `Pagado el ${formatoCorto(hoja.pago.fecha_pago)}`
+    const estadoPago = datosHoja.pago
+      ? datosHoja.pago.estado_pago === 'pagado'
+        ? `Pagado el ${formatoCorto(datosHoja.pago.fecha_pago)}`
         : 'Pago pendiente'
       : 'Sin pago registrado';
 
+    return `
+  <div class="bloque">
+    <div class="nombre-productor">${p.nombre}</div>
+    <div class="info">
+      <div><strong>Semana:</strong> ${formatoCorto(diasHoja[0]?.fecha)} a ${formatoCorto(diasHoja[diasHoja.length - 1]?.fecha)}</div>
+      <div><strong>Precio por litro:</strong> ${formatearMontoEnMoneda(precioNormal, monedaHoja)}</div>
+      ${filaAcidos}
+      <div><strong>Estado:</strong> ${estadoPago}</div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Día</th>
+          <th>Fecha</th>
+          <th class="num">Litros buenos</th>
+          <th class="num">Litros ácidos</th>
+          <th class="num">Subtotal</th>
+        </tr>
+      </thead>
+      <tbody>${filas}</tbody>
+      <tfoot>
+        <tr>
+          <th colspan="2">Total de la semana</th>
+          <th class="num">${datosHoja.totales.total_litros} L</th>
+          <th class="num">${datosHoja.totales.total_litros_acidos > 0 ? datosHoja.totales.total_litros_acidos + ' L' : '—'}</th>
+          <th class="num">${formatearMontoEnMoneda(datosHoja.totales.total_pagar, monedaHoja)}</th>
+        </tr>
+      </tfoot>
+    </table>
+    <div class="firmas">
+      <div>Firma del productor</div>
+      <div>Firma COOLAPAR</div>
+    </div>
+  </div>`;
+  };
+
+  // Envuelve uno o más bloques de productor en el documento completo con
+  // el logo arriba, y dispara la impresión con un iframe oculto (para no
+  // toparse con el bloqueador de ventanas emergentes del navegador).
+  const imprimirDocumento = (bloquesHtml) => {
     const html = `<!doctype html>
 <html>
 <head>
 <meta charset="utf-8" />
-<title>Registro de leche - ${productor?.nombre || ''}</title>
+<title>Registro diario de leche</title>
 <style>
-  @page { size: letter portrait; margin: 16mm; }
+  @page { size: letter portrait; margin: 14mm; }
   * { box-sizing: border-box; }
   body { font-family: Arial, Helvetica, sans-serif; color: #212529; margin: 0; }
-  .encabezado { display: flex; align-items: center; gap: 16px; border-bottom: 2px solid #198754; padding-bottom: 12px; margin-bottom: 16px; }
+  .encabezado { display: flex; align-items: center; gap: 16px; border-bottom: 2px solid #198754; padding-bottom: 12px; margin-bottom: 18px; }
   .encabezado img { height: 64px; width: auto; }
   .encabezado h1 { font-size: 20px; margin: 0; color: #198754; }
   .encabezado p { margin: 2px 0 0; color: #6c757d; font-size: 13px; }
-  .info { display: flex; flex-wrap: wrap; gap: 6px 28px; font-size: 13px; margin-bottom: 16px; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { border: 1px solid #dee2e6; padding: 6px 8px; text-align: left; }
+  .bloque { margin-bottom: 28px; padding-bottom: 18px; border-bottom: 1px dashed #ced4da; break-inside: avoid; }
+  .bloque:last-child { border-bottom: none; }
+  .nombre-productor { font-size: 16px; font-weight: bold; margin-bottom: 6px; }
+  .info { display: flex; flex-wrap: wrap; gap: 4px 24px; font-size: 12px; margin-bottom: 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { border: 1px solid #dee2e6; padding: 5px 7px; text-align: left; }
   thead th { background: #f1f3f5; }
   td.num, th.num { text-align: right; }
   tfoot th { background: #f1f3f5; }
-  .firmas { display: flex; justify-content: space-between; margin-top: 56px; font-size: 13px; }
-  .firmas div { width: 45%; text-align: center; border-top: 1px solid #212529; padding-top: 6px; }
-  .pie { margin-top: 24px; font-size: 11px; color: #6c757d; text-align: right; }
+  .firmas { display: flex; justify-content: space-between; margin-top: 28px; font-size: 12px; }
+  .firmas div { width: 45%; text-align: center; border-top: 1px solid #212529; padding-top: 5px; }
+  .pie { margin-top: 12px; font-size: 11px; color: #6c757d; text-align: right; }
 </style>
 </head>
 <body>
@@ -323,39 +370,7 @@ const RegistroLeche = () => {
     </div>
   </div>
 
-  <div class="info">
-    <div><strong>Productor:</strong> ${productor?.nombre || ''}</div>
-    <div><strong>Semana:</strong> ${formatoCorto(fechaInicio)} a ${formatoCorto(dias[dias.length - 1]?.fecha)}</div>
-    <div><strong>Precio por litro:</strong> ${formatearMontoEnMoneda(aNumero(precioLitro, 0), moneda)}</div>
-    ${filaAcidos}
-    <div><strong>Estado:</strong> ${estadoPago}</div>
-  </div>
-
-  <table>
-    <thead>
-      <tr>
-        <th>Día</th>
-        <th>Fecha</th>
-        <th class="num">Litros buenos</th>
-        <th class="num">Litros ácidos</th>
-        <th class="num">Subtotal</th>
-      </tr>
-    </thead>
-    <tbody>${filas}</tbody>
-    <tfoot>
-      <tr>
-        <th colspan="2">Total de la semana</th>
-        <th class="num">${totales.litros} L</th>
-        <th class="num">${totales.litrosAcidos > 0 ? totales.litrosAcidos + ' L' : '—'}</th>
-        <th class="num">${formatearMontoEnMoneda(totales.pagar, moneda)}</th>
-      </tr>
-    </tfoot>
-  </table>
-
-  <div class="firmas">
-    <div>Firma del productor</div>
-    <div>Firma COOLAPAR</div>
-  </div>
+  ${bloquesHtml.join('')}
 
   <div class="pie">Impreso el ${formatoCorto(hoy())}</div>
 </body>
@@ -384,6 +399,52 @@ const RegistroLeche = () => {
 
     iframe.srcdoc = html;
     setTimeout(limpiar, 8000); // limpieza de respaldo si el navegador no dispara afterprint
+  };
+
+  // ---------- Selección de productores para imprimir juntos ----------
+  const [mostrarModalImprimir, setMostrarModalImprimir] = useState(false);
+  const [seleccionImprimir, setSeleccionImprimir] = useState([]);
+  const [imprimiendo, setImprimiendo] = useState(false);
+  const [errorImprimir, setErrorImprimir] = useState('');
+
+  const abrirModalImprimir = () => {
+    setSeleccionImprimir(productorId ? [productorId] : []);
+    setErrorImprimir('');
+    setMostrarModalImprimir(true);
+  };
+
+  const alternarSeleccion = (id) => {
+    setSeleccionImprimir((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const imprimirSeleccionados = async () => {
+    if (seleccionImprimir.length === 0) {
+      setErrorImprimir('Marque al menos un productor.');
+      return;
+    }
+    setImprimiendo(true);
+    setErrorImprimir('');
+    try {
+      // Todos con la misma fecha de inicio y día de cierre que se ve en
+      // pantalla, así comparten hoja y no se desperdicia papel. El productor
+      // que ya está abierto en pantalla no se vuelve a pedir al servidor.
+      const hojas = await Promise.all(
+        seleccionImprimir.map((id) =>
+          id === productorId && hoja
+            ? Promise.resolve(hoja)
+            : registroApi.obtenerHoja({ productor_id: id, fecha_inicio: fechaInicio, dia_fin: diaFin }).then(desempacar)
+        )
+      );
+      const bloques = hojas.map((h) => construirBloqueProductor(h));
+      imprimirDocumento(bloques);
+      setMostrarModalImprimir(false);
+    } catch (err) {
+      setErrorImprimir(err.response?.data?.message || 'No se pudo preparar la impresión.');
+    } finally {
+      setImprimiendo(false);
+    }
   };
 
   if (cargando) return <LoadingSpinner mensaje="Cargando registro de leche..." />;
@@ -580,7 +641,7 @@ const RegistroLeche = () => {
           </Table>
 
           <Card.Footer className="d-flex justify-content-end gap-2 flex-wrap">
-            <Button variant="outline-secondary" onClick={imprimirHoja}>
+            <Button variant="outline-secondary" onClick={abrirModalImprimir}>
               Imprimir
             </Button>
             <Button variant="outline-success" onClick={guardarSemana} disabled={guardando || cerrada}>
@@ -640,6 +701,48 @@ const RegistroLeche = () => {
           </Table>
         </Card>
       )}
+
+      <Modal show={mostrarModalImprimir} onHide={() => setMostrarModalImprimir(false)} centered>
+        <Modal.Header closeButton>
+          <Modal.Title>Imprimir registro</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <p className="text-muted small">
+            Marque los productores que quiere incluir en la misma hoja, todos con la semana{' '}
+            {formatoCorto(fechaInicio)} a {formatoCorto(dias[dias.length - 1]?.fecha)}.
+          </p>
+
+          {errorImprimir && <Alert variant="danger">{errorImprimir}</Alert>}
+
+          <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+            {productores.map((p) => (
+              <Form.Check
+                key={p.id}
+                type="checkbox"
+                id={`imprimir-${p.id}`}
+                className="mb-2"
+                label={
+                  <span className="d-flex align-items-center gap-2">
+                    <Punto color={p.color_identificativo} />
+                    {p.nombre}
+                  </span>
+                }
+                checked={seleccionImprimir.includes(String(p.id))}
+                onChange={() => alternarSeleccion(String(p.id))}
+              />
+            ))}
+            {productores.length === 0 && <p className="text-muted">No hay productores activos.</p>}
+          </div>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="light" onClick={() => setMostrarModalImprimir(false)}>
+            Cancelar
+          </Button>
+          <Button variant="success" onClick={imprimirSeleccionados} disabled={imprimiendo}>
+            {imprimiendo ? 'Preparando...' : `Imprimir (${seleccionImprimir.length})`}
+          </Button>
+        </Modal.Footer>
+      </Modal>
     </div>
   );
 };
