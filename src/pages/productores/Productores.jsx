@@ -24,6 +24,7 @@ const formVacio = {
   telefono: '',
   direccion: '',
   precio_litro_base: '',
+  precio_litro_acida: '',
   moneda: 'BS',
   color_identificativo: '',
 };
@@ -39,6 +40,7 @@ const construirPayload = (form) => ({
   telefono: vacio(form.telefono) ? null : form.telefono.trim(),
   direccion: vacio(form.direccion) ? null : form.direccion.trim(),
   precio_litro_base: vacio(form.precio_litro_base) ? null : Number(form.precio_litro_base),
+  precio_litro_acida: vacio(form.precio_litro_acida) ? null : Number(form.precio_litro_acida),
   moneda: form.moneda || 'BS',
   color_identificativo: vacio(form.color_identificativo) ? null : form.color_identificativo,
 });
@@ -216,6 +218,7 @@ const Productores = () => {
       telefono: productor.telefono || '',
       direccion: productor.direccion || '',
       precio_litro_base: productor.precio_litro_base ?? '',
+      precio_litro_acida: productor.precio_litro_acida ?? '',
       moneda: productor.moneda || 'BS',
       color_identificativo: productor.color_identificativo || '',
     });
@@ -393,6 +396,7 @@ const Productores = () => {
             <th>Teléfono</th>
             <th>Dirección</th>
             <th>Precio por litro</th>
+            <th>Precio leche ácida</th>
             <th>Estado</th>
             <th></th>
           </tr>
@@ -424,6 +428,13 @@ const Productores = () => {
                 )}
               </td>
               <td>
+                {vacio(p.precio_litro_acida) ? (
+                  <span className="text-muted">—</span>
+                ) : (
+                  formatearMontoEnMoneda(p.precio_litro_acida, p.moneda)
+                )}
+              </td>
+              <td>
                 <Badge bg={p.activo ? 'success' : 'secondary'}>{p.activo ? 'Activo' : 'Inactivo'}</Badge>
               </td>
               <td className="text-end text-nowrap">
@@ -442,7 +453,7 @@ const Productores = () => {
           ))}
           {productoresVisibles.length === 0 && (
             <tr>
-              <td colSpan={7} className="text-center text-muted py-4">
+              <td colSpan={8} className="text-center text-muted py-4">
                 {productores.length === 0
                   ? 'Todavía no hay productores. Registre el primero para empezar a cargar litros.'
                   : 'Ningún productor coincide con el filtro.'}
@@ -534,6 +545,26 @@ const Productores = () => {
                   placeholder="0.00"
                 />
               </InputGroup>
+            </Form.Group>
+
+            <Form.Group className="mb-3">
+              <Form.Label>Precio de la leche ácida (opcional)</Form.Label>
+              <InputGroup>
+                <InputGroup.Text style={{ minWidth: 60, justifyContent: 'center' }}>
+                  {OPCIONES_MONEDA.find((op) => op.codigo === form.moneda)?.codigo || form.moneda}
+                </InputGroup.Text>
+                <Form.Control
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.precio_litro_acida}
+                  onChange={(e) => setForm({ ...form, precio_litro_acida: e.target.value })}
+                  placeholder="0.00"
+                />
+              </InputGroup>
+              <Form.Text className="text-muted">
+                Se usa cuando este productor trae leche ácida el mismo día, a un precio más bajo que el normal.
+              </Form.Text>
             </Form.Group>
 
             <Form.Group className="mb-2">

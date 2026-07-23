@@ -46,6 +46,10 @@ const RegistroLeche = () => {
   const [hoja, setHoja] = useState(null);
   const [dias, setDias] = useState([]);
   const [precioLitro, setPrecioLitro] = useState('');
+  // Precio de la leche ácida: opcional. El mismo productor puede traer
+  // litros buenos (precio normal) y litros ácidos (precio más bajo) el
+  // mismo día; cada quien con su propio precio.
+  const [precioAcida, setPrecioAcida] = useState('');
   const [moneda, setMoneda] = useState('BS');
   const [cargandoHoja, setCargandoHoja] = useState(false);
   const [guardando, setGuardando] = useState(false);
@@ -89,8 +93,15 @@ const RegistroLeche = () => {
 
       const datos = desempacar(await registroApi.obtenerHoja(params));
       setHoja(datos);
-      setDias(datos.dias.map((d) => ({ ...d, litros: d.litros === null ? '' : String(d.litros) })));
+      setDias(
+        datos.dias.map((d) => ({
+          ...d,
+          litros: d.litros === null ? '' : String(d.litros),
+          litros_acidos: d.litros_acidos ? String(d.litros_acidos) : '',
+        }))
+      );
       setPrecioLitro(datos.precio_litro ? String(datos.precio_litro) : '');
+      setPrecioAcida(datos.precio_litro_acida ? String(datos.precio_litro_acida) : '');
       setMoneda(datos.moneda || 'BS');
       if (semanaId && datos.dias.length > 0) {
         setFechaInicio(datos.dias[0].fecha);
@@ -122,13 +133,16 @@ const RegistroLeche = () => {
 
   const totales = useMemo(() => {
     const litros = dias.reduce((s, d) => s + aNumero(d.litros, 0), 0);
+    const litrosAcidos = dias.reduce((s, d) => s + aNumero(d.litros_acidos, 0), 0);
     const precio = aNumero(precioLitro, 0);
+    const precioAc = aNumero(precioAcida, 0);
     return {
-      dias: dias.filter((d) => aNumero(d.litros, 0) > 0).length,
+      dias: dias.filter((d) => aNumero(d.litros, 0) > 0 || aNumero(d.litros_acidos, 0) > 0).length,
       litros: Math.round(litros * 100) / 100,
-      pagar: Math.round(litros * precio * 100) / 100,
+      litrosAcidos: Math.round(litrosAcidos * 100) / 100,
+      pagar: Math.round((litros * precio + litrosAcidos * precioAc) * 100) / 100,
     };
-  }, [dias, precioLitro]);
+  }, [dias, precioLitro, precioAcida]);
 
   const elegirProductor = (id) => {
     setSemanaId(null);
@@ -136,6 +150,7 @@ const RegistroLeche = () => {
     const p = productores.find((x) => String(x.id) === String(id));
     if (p) {
       if (!vacio(p.precio_litro_base)) setPrecioLitro(String(p.precio_litro_base));
+      if (!vacio(p.precio_litro_acida)) setPrecioAcida(String(p.precio_litro_acida));
       if (p.moneda) setMoneda(p.moneda);
     }
   };
@@ -150,25 +165,46 @@ const RegistroLeche = () => {
     setDiaFin(Number(valor));
   };
 
+  const cambiarDia = (fecha, campo, valor) => {
+    setDias((prev) => prev.map((x) => (x.fecha === fecha ? { ...x, [campo]: valor } : x)));
+  };
+
   const cuerpoHoja = () => ({
     productor_id: Number(productorId),
     semana_id: hoja.semana.id,
     precio_litro: aNumero(precioLitro, 0),
+    precio_litro_acida: aNumero(precioAcida, 0),
     moneda,
-    dias: dias.map((d) => ({ fecha: d.fecha, litros: vacio(d.litros) ? null : aNumero(d.litros, 0) })),
+    dias: dias.map((d) => ({
+      fecha: d.fecha,
+      litros: vacio(d.litros) ? null : aNumero(d.litros, 0),
+      litros_acidos: vacio(d.litros_acidos) ? 0 : aNumero(d.litros_acidos, 0),
+    })),
   });
 
   const guardarSemana = async () => {
     if (!hoja) return;
     if (aNumero(precioLitro, 0) <= 0) return setError('Indique a cuánto se le paga el litro esta semana.');
+    if (totales.litrosAcidos > 0 && aNumero(precioAcida, 0) <= 0) {
+      return setError('Indique el precio de la leche ácida: hay litros ácidos cargados.');
+    }
 
     setGuardando(true);
     setError('');
     try {
       const datos = desempacar(await registroApi.guardarHoja(cuerpoHoja()));
       setHoja(datos);
-      setDias(datos.dias.map((d) => ({ ...d, litros: d.litros === null ? '' : String(d.litros) })));
-      setAviso(`Semana guardada: ${datos.totales.total_litros} litros.`);
+      setDias(
+        datos.dias.map((d) => ({
+          ...d,
+          litros: d.litros === null ? '' : String(d.litros),
+          litros_acidos: d.litros_acidos ? String(d.litros_acidos) : '',
+        }))
+      );
+      setAviso(
+        `Semana guardada: ${datos.totales.total_litros} litros` +
+          (datos.totales.total_litros_acidos > 0 ? ` + ${datos.totales.total_litros_acidos} ácidos.` : '.')
+      );
       await cargarHistorial();
     } catch (err) {
       setError(err.response?.data?.message || 'No se pudo guardar la semana.');
@@ -178,8 +214,14 @@ const RegistroLeche = () => {
   };
 
   const registrarPago = async () => {
-    if (!hoja || totales.litros <= 0) return setError('Cargue los litros antes de registrar el pago.');
-    const resumen = `${totales.litros} litros × ${formatearMontoEnMoneda(aNumero(precioLitro, 0), moneda)} = ${formatearMontoEnMoneda(totales.pagar, moneda)}`;
+    if (!hoja || (totales.litros <= 0 && totales.litrosAcidos <= 0)) {
+      return setError('Cargue los litros antes de registrar el pago.');
+    }
+    const partes = [`${totales.litros} litros × ${formatearMontoEnMoneda(aNumero(precioLitro, 0), moneda)}`];
+    if (totales.litrosAcidos > 0) {
+      partes.push(`${totales.litrosAcidos} ácidos × ${formatearMontoEnMoneda(aNumero(precioAcida, 0), moneda)}`);
+    }
+    const resumen = `${partes.join(' + ')} = ${formatearMontoEnMoneda(totales.pagar, moneda)}`;
     if (!window.confirm(`¿Registrar el pago de ${productor?.nombre}?\n${resumen}`)) return;
 
     setGuardando(true);
@@ -221,8 +263,8 @@ const RegistroLeche = () => {
       <div className="mb-3">
         <h4 className="mb-1">Registro diario de leche</h4>
         <p className="text-muted mb-0">
-          Elija el productor y en qué días corre su semana. Cargue los litros de cada día y abajo queda el total a
-          cancelarle.
+          Elija el productor y en qué días corre su semana. Cargue los litros buenos y, si trajo, los litros ácidos
+          de cada día — cada uno se paga a su propio precio.
         </p>
       </div>
 
@@ -253,11 +295,7 @@ const RegistroLeche = () => {
 
           <div style={{ minWidth: 190 }}>
             <Form.Label className="small text-muted mb-1">Fecha de inicio</Form.Label>
-            <Form.Control
-              type="date"
-              value={fechaInicio}
-              onChange={(e) => cambiarFechaInicio(e.target.value)}
-            />
+            <Form.Control type="date" value={fechaInicio} onChange={(e) => cambiarFechaInicio(e.target.value)} />
             <Form.Text className="text-muted">{nombreDia(diaSemanaDeFecha(fechaInicio))}</Form.Text>
           </div>
 
@@ -273,13 +311,13 @@ const RegistroLeche = () => {
             <Form.Text className="text-muted">{largoCiclo(diaSemanaDeFecha(fechaInicio), diaFin)} día(s)</Form.Text>
           </div>
 
-          <div style={{ minWidth: 300 }}>
-            <Form.Label className="small text-muted mb-1">Precio por litro de esta semana</Form.Label>
+          <div style={{ minWidth: 260 }}>
+            <Form.Label className="small text-muted mb-1">Precio por litro (normal)</Form.Label>
             <InputGroup>
-              <Form.Select value={moneda} onChange={(e) => setMoneda(e.target.value)} style={{ maxWidth: 180 }}>
+              <Form.Select value={moneda} onChange={(e) => setMoneda(e.target.value)} style={{ maxWidth: 150 }}>
                 {OPCIONES_MONEDA.map((op) => (
                   <option key={op.codigo} value={op.codigo}>
-                    {op.etiqueta}
+                    {op.codigo}
                   </option>
                 ))}
               </Form.Select>
@@ -292,6 +330,22 @@ const RegistroLeche = () => {
                 placeholder="0.00"
               />
             </InputGroup>
+          </div>
+
+          <div style={{ minWidth: 200 }}>
+            <Form.Label className="small text-muted mb-1">Precio leche ácida</Form.Label>
+            <InputGroup>
+              <InputGroup.Text>{moneda}</InputGroup.Text>
+              <Form.Control
+                type="number"
+                min="0"
+                step="0.01"
+                value={precioAcida}
+                onChange={(e) => setPrecioAcida(e.target.value)}
+                placeholder="0.00"
+              />
+            </InputGroup>
+            <Form.Text className="text-muted">Solo si trae litros ácidos.</Form.Text>
           </div>
         </Card.Body>
       </Card>
@@ -333,15 +387,18 @@ const RegistroLeche = () => {
           <Table hover responsive className="mb-0 align-middle">
             <thead>
               <tr>
-                <th style={{ width: 150 }}>Día</th>
-                <th style={{ width: 110 }}>Fecha</th>
-                <th style={{ width: 200 }}>Litros</th>
+                <th style={{ width: 120 }}>Día</th>
+                <th style={{ width: 100 }}>Fecha</th>
+                <th style={{ width: 150 }}>Litros buenos</th>
+                <th style={{ width: 150 }}>Litros ácidos</th>
                 <th>Subtotal</th>
               </tr>
             </thead>
             <tbody>
               {dias.map((d) => {
                 const litros = aNumero(d.litros, 0);
+                const litrosAcidos = aNumero(d.litros_acidos, 0);
+                const subtotal = litros * aNumero(precioLitro, 0) + litrosAcidos * aNumero(precioAcida, 0);
                 return (
                   <tr key={d.fecha}>
                     <td className="fw-semibold">{d.dia}</td>
@@ -355,17 +412,23 @@ const RegistroLeche = () => {
                         value={d.litros}
                         disabled={cerrada}
                         placeholder="—"
-                        onChange={(e) =>
-                          setDias((prev) =>
-                            prev.map((x) => (x.fecha === d.fecha ? { ...x, litros: e.target.value } : x))
-                          )
-                        }
+                        onChange={(e) => cambiarDia(d.fecha, 'litros', e.target.value)}
                       />
                     </td>
-                    <td className={litros > 0 ? '' : 'text-muted'}>
-                      {litros > 0
-                        ? formatearMontoEnMoneda(litros * aNumero(precioLitro, 0), moneda)
-                        : 'No trajo'}
+                    <td>
+                      <Form.Control
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        size="sm"
+                        value={d.litros_acidos}
+                        disabled={cerrada}
+                        placeholder="—"
+                        onChange={(e) => cambiarDia(d.fecha, 'litros_acidos', e.target.value)}
+                      />
+                    </td>
+                    <td className={litros > 0 || litrosAcidos > 0 ? '' : 'text-muted'}>
+                      {litros > 0 || litrosAcidos > 0 ? formatearMontoEnMoneda(subtotal, moneda) : 'No trajo'}
                     </td>
                   </tr>
                 );
@@ -378,6 +441,7 @@ const RegistroLeche = () => {
                   <div className="text-muted fw-normal small">{totales.dias} día(s) con leche</div>
                 </th>
                 <th>{totales.litros} litros</th>
+                <th>{totales.litrosAcidos > 0 ? `${totales.litrosAcidos} ácidos` : '—'}</th>
                 <th className="fs-5">{formatearMontoEnMoneda(totales.pagar, moneda)}</th>
               </tr>
             </tfoot>
@@ -387,7 +451,11 @@ const RegistroLeche = () => {
             <Button variant="outline-success" onClick={guardarSemana} disabled={guardando || cerrada}>
               {guardando ? 'Guardando...' : 'Guardar semana'}
             </Button>
-            <Button variant="success" onClick={registrarPago} disabled={guardando || totales.litros <= 0}>
+            <Button
+              variant="success"
+              onClick={registrarPago}
+              disabled={guardando || (totales.litros <= 0 && totales.litrosAcidos <= 0)}
+            >
               Registrar pago
             </Button>
           </Card.Footer>
@@ -403,6 +471,7 @@ const RegistroLeche = () => {
                 <th>Días</th>
                 <th>Con leche</th>
                 <th>Litros</th>
+                <th>Ácidos</th>
                 <th>Total</th>
                 <th>Pago</th>
                 <th></th>
@@ -414,6 +483,7 @@ const RegistroLeche = () => {
                   <td className="fw-semibold">{s.etiqueta}</td>
                   <td>{s.dias_con_leche}</td>
                   <td>{s.total_litros}</td>
+                  <td>{s.total_litros_acidos > 0 ? s.total_litros_acidos : '—'}</td>
                   <td>{formatearMontoEnMoneda(s.total_pagar, s.moneda)}</td>
                   <td>
                     {s.estado_pago === 'pagado' ? (
