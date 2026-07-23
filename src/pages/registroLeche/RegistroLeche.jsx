@@ -52,6 +52,9 @@ const RegistroLeche = () => {
   // litros buenos (precio normal) y litros ácidos (precio más bajo) el
   // mismo día; cada quien con su propio precio.
   const [precioAcida, setPrecioAcida] = useState('');
+  // Precio de la leche baja en grasa: funciona igual que la ácida, con su
+  // propio precio independiente.
+  const [precioBajoGrasa, setPrecioBajoGrasa] = useState('');
   const [moneda, setMoneda] = useState('BS');
   const [cargandoHoja, setCargandoHoja] = useState(false);
   const [guardando, setGuardando] = useState(false);
@@ -100,10 +103,12 @@ const RegistroLeche = () => {
           ...d,
           litros: d.litros === null ? '' : String(d.litros),
           litros_acidos: d.litros_acidos ? String(d.litros_acidos) : '',
+          litros_bajo_grasa: d.litros_bajo_grasa ? String(d.litros_bajo_grasa) : '',
         }))
       );
       setPrecioLitro(datos.precio_litro ? String(datos.precio_litro) : '');
       setPrecioAcida(datos.precio_litro_acida ? String(datos.precio_litro_acida) : '');
+      setPrecioBajoGrasa(datos.precio_litro_bajo_grasa ? String(datos.precio_litro_bajo_grasa) : '');
       setMoneda(datos.moneda || 'BS');
       if (semanaId && datos.dias.length > 0) {
         setFechaInicio(datos.dias[0].fecha);
@@ -136,15 +141,20 @@ const RegistroLeche = () => {
   const totales = useMemo(() => {
     const litros = dias.reduce((s, d) => s + aNumero(d.litros, 0), 0);
     const litrosAcidos = dias.reduce((s, d) => s + aNumero(d.litros_acidos, 0), 0);
+    const litrosBajoGrasa = dias.reduce((s, d) => s + aNumero(d.litros_bajo_grasa, 0), 0);
     const precio = aNumero(precioLitro, 0);
     const precioAc = aNumero(precioAcida, 0);
+    const precioBg = aNumero(precioBajoGrasa, 0);
     return {
-      dias: dias.filter((d) => aNumero(d.litros, 0) > 0 || aNumero(d.litros_acidos, 0) > 0).length,
+      dias: dias.filter(
+        (d) => aNumero(d.litros, 0) > 0 || aNumero(d.litros_acidos, 0) > 0 || aNumero(d.litros_bajo_grasa, 0) > 0
+      ).length,
       litros: Math.round(litros * 100) / 100,
       litrosAcidos: Math.round(litrosAcidos * 100) / 100,
-      pagar: Math.round((litros * precio + litrosAcidos * precioAc) * 100) / 100,
+      litrosBajoGrasa: Math.round(litrosBajoGrasa * 100) / 100,
+      pagar: Math.round((litros * precio + litrosAcidos * precioAc + litrosBajoGrasa * precioBg) * 100) / 100,
     };
-  }, [dias, precioLitro, precioAcida]);
+  }, [dias, precioLitro, precioAcida, precioBajoGrasa]);
 
   const elegirProductor = (id) => {
     setSemanaId(null);
@@ -153,6 +163,7 @@ const RegistroLeche = () => {
     if (p) {
       if (!vacio(p.precio_litro_base)) setPrecioLitro(String(p.precio_litro_base));
       if (!vacio(p.precio_litro_acida)) setPrecioAcida(String(p.precio_litro_acida));
+      if (!vacio(p.precio_litro_bajo_grasa)) setPrecioBajoGrasa(String(p.precio_litro_bajo_grasa));
       if (p.moneda) setMoneda(p.moneda);
     }
   };
@@ -176,11 +187,13 @@ const RegistroLeche = () => {
     semana_id: hoja.semana.id,
     precio_litro: aNumero(precioLitro, 0),
     precio_litro_acida: aNumero(precioAcida, 0),
+    precio_litro_bajo_grasa: aNumero(precioBajoGrasa, 0),
     moneda,
     dias: dias.map((d) => ({
       fecha: d.fecha,
       litros: vacio(d.litros) ? null : aNumero(d.litros, 0),
       litros_acidos: vacio(d.litros_acidos) ? 0 : aNumero(d.litros_acidos, 0),
+      litros_bajo_grasa: vacio(d.litros_bajo_grasa) ? 0 : aNumero(d.litros_bajo_grasa, 0),
     })),
   });
 
@@ -189,6 +202,9 @@ const RegistroLeche = () => {
     if (aNumero(precioLitro, 0) <= 0) return setError('Indique a cuánto se le paga el litro esta semana.');
     if (totales.litrosAcidos > 0 && aNumero(precioAcida, 0) <= 0) {
       return setError('Indique el precio de la leche ácida: hay litros ácidos cargados.');
+    }
+    if (totales.litrosBajoGrasa > 0 && aNumero(precioBajoGrasa, 0) <= 0) {
+      return setError('Indique el precio de la leche baja en grasa: hay litros cargados de ese tipo.');
     }
 
     setGuardando(true);
@@ -201,12 +217,15 @@ const RegistroLeche = () => {
           ...d,
           litros: d.litros === null ? '' : String(d.litros),
           litros_acidos: d.litros_acidos ? String(d.litros_acidos) : '',
+          litros_bajo_grasa: d.litros_bajo_grasa ? String(d.litros_bajo_grasa) : '',
         }))
       );
-      setAviso(
-        `Semana guardada: ${datos.totales.total_litros} litros` +
-          (datos.totales.total_litros_acidos > 0 ? ` + ${datos.totales.total_litros_acidos} ácidos.` : '.')
-      );
+      const partesAviso = [`${datos.totales.total_litros} litros`];
+      if (datos.totales.total_litros_acidos > 0) partesAviso.push(`${datos.totales.total_litros_acidos} ácidos`);
+      if (datos.totales.total_litros_bajo_grasa > 0) {
+        partesAviso.push(`${datos.totales.total_litros_bajo_grasa} bajos en grasa`);
+      }
+      setAviso(`Semana guardada: ${partesAviso.join(' + ')}.`);
       await cargarHistorial();
     } catch (err) {
       setError(err.response?.data?.message || 'No se pudo guardar la semana.');
@@ -216,12 +235,17 @@ const RegistroLeche = () => {
   };
 
   const registrarPago = async () => {
-    if (!hoja || (totales.litros <= 0 && totales.litrosAcidos <= 0)) {
+    if (!hoja || (totales.litros <= 0 && totales.litrosAcidos <= 0 && totales.litrosBajoGrasa <= 0)) {
       return setError('Cargue los litros antes de registrar el pago.');
     }
     const partes = [`${totales.litros} litros × ${formatearMontoEnMoneda(aNumero(precioLitro, 0), moneda)}`];
     if (totales.litrosAcidos > 0) {
       partes.push(`${totales.litrosAcidos} ácidos × ${formatearMontoEnMoneda(aNumero(precioAcida, 0), moneda)}`);
+    }
+    if (totales.litrosBajoGrasa > 0) {
+      partes.push(
+        `${totales.litrosBajoGrasa} bajos en grasa × ${formatearMontoEnMoneda(aNumero(precioBajoGrasa, 0), moneda)}`
+      );
     }
     const resumen = `${partes.join(' + ')} = ${formatearMontoEnMoneda(totales.pagar, moneda)}`;
     if (!window.confirm(`¿Registrar el pago de ${productor?.nombre}?\n${resumen}`)) return;
@@ -264,20 +288,23 @@ const RegistroLeche = () => {
     const diasHoja = datosHoja.dias || [];
     const precioNormal = Number(datosHoja.precio_litro || 0);
     const precioAc = Number(datosHoja.precio_litro_acida || 0);
+    const precioBg = Number(datosHoja.precio_litro_bajo_grasa || 0);
     const monedaHoja = datosHoja.moneda || 'BS';
 
     const filas = diasHoja
       .map((d) => {
         const litros = Number(d.litros || 0);
         const litrosAcidos = Number(d.litros_acidos || 0);
+        const litrosBajoGrasa = Number(d.litros_bajo_grasa || 0);
         const subtotal = Number(d.subtotal || 0);
-        const tieneDatos = litros > 0 || litrosAcidos > 0;
+        const tieneDatos = litros > 0 || litrosAcidos > 0 || litrosBajoGrasa > 0;
         return `
           <tr>
             <td>${d.dia}</td>
             <td>${formatoCorto(d.fecha)}</td>
             <td class="num">${litros > 0 ? litros : '—'}</td>
             <td class="num">${litrosAcidos > 0 ? litrosAcidos : '—'}</td>
+            <td class="num">${litrosBajoGrasa > 0 ? litrosBajoGrasa : '—'}</td>
             <td class="num">${tieneDatos ? formatearMontoEnMoneda(subtotal, monedaHoja) : '—'}</td>
           </tr>`;
       })
@@ -286,6 +313,11 @@ const RegistroLeche = () => {
     const filaAcidos =
       datosHoja.totales.total_litros_acidos > 0
         ? `<div><strong>Precio leche ácida:</strong> ${formatearMontoEnMoneda(precioAc, monedaHoja)}</div>`
+        : '';
+
+    const filaBajoGrasa =
+      datosHoja.totales.total_litros_bajo_grasa > 0
+        ? `<div><strong>Precio bajo en grasa:</strong> ${formatearMontoEnMoneda(precioBg, monedaHoja)}</div>`
         : '';
 
     const estadoPago = datosHoja.pago
@@ -301,6 +333,7 @@ const RegistroLeche = () => {
       <div><strong>Semana:</strong> ${formatoCorto(diasHoja[0]?.fecha)} a ${formatoCorto(diasHoja[diasHoja.length - 1]?.fecha)}</div>
       <div><strong>Precio por litro:</strong> ${formatearMontoEnMoneda(precioNormal, monedaHoja)}</div>
       ${filaAcidos}
+      ${filaBajoGrasa}
       <div><strong>Estado:</strong> ${estadoPago}</div>
     </div>
     <table>
@@ -310,6 +343,7 @@ const RegistroLeche = () => {
           <th>Fecha</th>
           <th class="num">Litros buenos</th>
           <th class="num">Litros ácidos</th>
+          <th class="num">Bajo en grasa</th>
           <th class="num">Subtotal</th>
         </tr>
       </thead>
@@ -319,6 +353,7 @@ const RegistroLeche = () => {
           <th colspan="2">Total de la semana</th>
           <th class="num">${datosHoja.totales.total_litros} L</th>
           <th class="num">${datosHoja.totales.total_litros_acidos > 0 ? datosHoja.totales.total_litros_acidos + ' L' : '—'}</th>
+          <th class="num">${datosHoja.totales.total_litros_bajo_grasa > 0 ? datosHoja.totales.total_litros_bajo_grasa + ' L' : '—'}</th>
           <th class="num">${formatearMontoEnMoneda(datosHoja.totales.total_pagar, monedaHoja)}</th>
         </tr>
       </tfoot>
@@ -540,6 +575,22 @@ const RegistroLeche = () => {
             </InputGroup>
             <Form.Text className="text-muted">Solo si trae litros ácidos.</Form.Text>
           </div>
+
+          <div style={{ minWidth: 200 }}>
+            <Form.Label className="small text-muted mb-1">Precio bajo en grasa</Form.Label>
+            <InputGroup>
+              <InputGroup.Text>{moneda}</InputGroup.Text>
+              <Form.Control
+                type="number"
+                min="0"
+                step="0.01"
+                value={precioBajoGrasa}
+                onChange={(e) => setPrecioBajoGrasa(e.target.value)}
+                placeholder="0.00"
+              />
+            </InputGroup>
+            <Form.Text className="text-muted">Solo si trae litros bajos en grasa.</Form.Text>
+          </div>
         </Card.Body>
       </Card>
 
@@ -580,10 +631,11 @@ const RegistroLeche = () => {
           <Table hover responsive className="mb-0 align-middle">
             <thead>
               <tr>
-                <th style={{ width: 120 }}>Día</th>
-                <th style={{ width: 100 }}>Fecha</th>
-                <th style={{ width: 150 }}>Litros buenos</th>
-                <th style={{ width: 150 }}>Litros ácidos</th>
+                <th style={{ width: 110 }}>Día</th>
+                <th style={{ width: 95 }}>Fecha</th>
+                <th style={{ width: 130 }}>Litros buenos</th>
+                <th style={{ width: 130 }}>Litros ácidos</th>
+                <th style={{ width: 140 }}>Litros bajo en grasa</th>
                 <th>Subtotal</th>
               </tr>
             </thead>
@@ -591,7 +643,12 @@ const RegistroLeche = () => {
               {dias.map((d) => {
                 const litros = aNumero(d.litros, 0);
                 const litrosAcidos = aNumero(d.litros_acidos, 0);
-                const subtotal = litros * aNumero(precioLitro, 0) + litrosAcidos * aNumero(precioAcida, 0);
+                const litrosBajoGrasa = aNumero(d.litros_bajo_grasa, 0);
+                const subtotal =
+                  litros * aNumero(precioLitro, 0) +
+                  litrosAcidos * aNumero(precioAcida, 0) +
+                  litrosBajoGrasa * aNumero(precioBajoGrasa, 0);
+                const tieneDatos = litros > 0 || litrosAcidos > 0 || litrosBajoGrasa > 0;
                 return (
                   <tr key={d.fecha}>
                     <td className="fw-semibold">{d.dia}</td>
@@ -620,8 +677,20 @@ const RegistroLeche = () => {
                         onChange={(e) => cambiarDia(d.fecha, 'litros_acidos', e.target.value)}
                       />
                     </td>
-                    <td className={litros > 0 || litrosAcidos > 0 ? '' : 'text-muted'}>
-                      {litros > 0 || litrosAcidos > 0 ? formatearMontoEnMoneda(subtotal, moneda) : 'No trajo'}
+                    <td>
+                      <Form.Control
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        size="sm"
+                        value={d.litros_bajo_grasa}
+                        disabled={cerrada}
+                        placeholder="—"
+                        onChange={(e) => cambiarDia(d.fecha, 'litros_bajo_grasa', e.target.value)}
+                      />
+                    </td>
+                    <td className={tieneDatos ? '' : 'text-muted'}>
+                      {tieneDatos ? formatearMontoEnMoneda(subtotal, moneda) : 'No trajo'}
                     </td>
                   </tr>
                 );
@@ -635,6 +704,7 @@ const RegistroLeche = () => {
                 </th>
                 <th>{totales.litros} litros</th>
                 <th>{totales.litrosAcidos > 0 ? `${totales.litrosAcidos} ácidos` : '—'}</th>
+                <th>{totales.litrosBajoGrasa > 0 ? `${totales.litrosBajoGrasa} bajos en grasa` : '—'}</th>
                 <th className="fs-5">{formatearMontoEnMoneda(totales.pagar, moneda)}</th>
               </tr>
             </tfoot>
@@ -668,6 +738,7 @@ const RegistroLeche = () => {
                 <th>Con leche</th>
                 <th>Litros</th>
                 <th>Ácidos</th>
+                <th>Bajo en grasa</th>
                 <th>Total</th>
                 <th>Pago</th>
                 <th></th>
@@ -680,6 +751,7 @@ const RegistroLeche = () => {
                   <td>{s.dias_con_leche}</td>
                   <td>{s.total_litros}</td>
                   <td>{s.total_litros_acidos > 0 ? s.total_litros_acidos : '—'}</td>
+                  <td>{s.total_litros_bajo_grasa > 0 ? s.total_litros_bajo_grasa : '—'}</td>
                   <td>{formatearMontoEnMoneda(s.total_pagar, s.moneda)}</td>
                   <td>
                     {s.estado_pago === 'pagado' ? (

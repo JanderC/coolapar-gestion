@@ -25,6 +25,7 @@ const formVacio = {
   direccion: '',
   precio_litro_base: '',
   precio_litro_acida: '',
+  precio_litro_bajo_grasa: '',
   moneda: 'BS',
   color_identificativo: '',
 };
@@ -41,6 +42,7 @@ const construirPayload = (form) => ({
   direccion: vacio(form.direccion) ? null : form.direccion.trim(),
   precio_litro_base: vacio(form.precio_litro_base) ? null : Number(form.precio_litro_base),
   precio_litro_acida: vacio(form.precio_litro_acida) ? null : Number(form.precio_litro_acida),
+  precio_litro_bajo_grasa: vacio(form.precio_litro_bajo_grasa) ? null : Number(form.precio_litro_bajo_grasa),
   moneda: form.moneda || 'BS',
   color_identificativo: vacio(form.color_identificativo) ? null : form.color_identificativo,
 });
@@ -219,6 +221,7 @@ const Productores = () => {
       direccion: productor.direccion || '',
       precio_litro_base: productor.precio_litro_base ?? '',
       precio_litro_acida: productor.precio_litro_acida ?? '',
+      precio_litro_bajo_grasa: productor.precio_litro_bajo_grasa ?? '',
       moneda: productor.moneda || 'BS',
       color_identificativo: productor.color_identificativo || '',
     });
@@ -397,6 +400,7 @@ const Productores = () => {
             <th>Dirección</th>
             <th>Precio por litro</th>
             <th>Precio leche ácida</th>
+            <th>Precio bajo en grasa</th>
             <th>Estado</th>
             <th></th>
           </tr>
@@ -435,6 +439,13 @@ const Productores = () => {
                 )}
               </td>
               <td>
+                {vacio(p.precio_litro_bajo_grasa) ? (
+                  <span className="text-muted">—</span>
+                ) : (
+                  formatearMontoEnMoneda(p.precio_litro_bajo_grasa, p.moneda)
+                )}
+              </td>
+              <td>
                 <Badge bg={p.activo ? 'success' : 'secondary'}>{p.activo ? 'Activo' : 'Inactivo'}</Badge>
               </td>
               <td className="text-end text-nowrap">
@@ -453,7 +464,7 @@ const Productores = () => {
           ))}
           {productoresVisibles.length === 0 && (
             <tr>
-              <td colSpan={8} className="text-center text-muted py-4">
+              <td colSpan={9} className="text-center text-muted py-4">
                 {productores.length === 0
                   ? 'Todavía no hay productores. Registre el primero para empezar a cargar litros.'
                   : 'Ningún productor coincide con el filtro.'}
@@ -564,6 +575,26 @@ const Productores = () => {
               </InputGroup>
               <Form.Text className="text-muted">
                 Se usa cuando este productor trae leche ácida el mismo día, a un precio más bajo que el normal.
+              </Form.Text>
+            </Form.Group>
+
+            <Form.Group className="mb-3">
+              <Form.Label>Precio de la leche baja en grasa (opcional)</Form.Label>
+              <InputGroup>
+                <InputGroup.Text style={{ minWidth: 60, justifyContent: 'center' }}>
+                  {OPCIONES_MONEDA.find((op) => op.codigo === form.moneda)?.codigo || form.moneda}
+                </InputGroup.Text>
+                <Form.Control
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.precio_litro_bajo_grasa}
+                  onChange={(e) => setForm({ ...form, precio_litro_bajo_grasa: e.target.value })}
+                  placeholder="0.00"
+                />
+              </InputGroup>
+              <Form.Text className="text-muted">
+                Se usa cuando este productor trae leche baja en grasa el mismo día, a su propio precio.
               </Form.Text>
             </Form.Group>
 
