@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Table, Button, Modal, Form, Alert, Badge, InputGroup, Card } from 'react-bootstrap';
+import { Table, Button, Form, Alert, Badge, InputGroup, Card } from 'react-bootstrap';
 import * as registroApi from '../../api/registroLeche.api';
 import * as productoresApi from '../../api/productores.api';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { useMoneda } from '../../context/MonedaContext';
-import { aNumero, desempacar, etiquetaSemana, formatoCorto, hoy, lunesDe, sumarDias, vacio } from '../../utils/fechas';
+import { OPCIONES_DIA, aNumero, desempacar, etiquetaDias, formatoCorto, largoCiclo, vacio } from '../../utils/fechas';
 
 const OPCIONES_MONEDA = [
   { codigo: 'BS', etiqueta: 'Bs. — Bolívares' },
@@ -33,100 +33,91 @@ const RegistroLeche = () => {
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState('');
 
-  const [semanas, setSemanas] = useState([]);
-  const [semanaId, setSemanaId] = useState('');
   const [productores, setProductores] = useState([]);
   const [productorId, setProductorId] = useState('');
 
+  // La semana se define por días, no por fechas.
+  const [diaInicio, setDiaInicio] = useState(1); // lunes
+  const [diaFin, setDiaFin] = useState(0); // domingo
+  const [semanaId, setSemanaId] = useState(null); // solo al reabrir una del historial
+
+  const [hoja, setHoja] = useState(null);
   const [dias, setDias] = useState([]);
   const [precioLitro, setPrecioLitro] = useState('');
   const [moneda, setMoneda] = useState('BS');
-  const [pago, setPago] = useState(null);
   const [cargandoHoja, setCargandoHoja] = useState(false);
   const [guardando, setGuardando] = useState(false);
 
-  const [resumen, setResumen] = useState(null);
+  const [historial, setHistorial] = useState([]);
 
-  const [modalSemana, setModalSemana] = useState(false);
-  const [formSemana, setFormSemana] = useState({ fecha_inicio: lunesDe(), fecha_fin: sumarDias(lunesDe(), 6) });
-  const [guardandoSemana, setGuardandoSemana] = useState(false);
-  const [errorSemana, setErrorSemana] = useState('');
-
-  const semana = useMemo(
-    () => semanas.find((s) => String(s.id) === String(semanaId)) || null,
-    [semanas, semanaId]
-  );
   const productor = useMemo(
     () => productores.find((p) => String(p.id) === String(productorId)) || null,
     [productores, productorId]
   );
 
-  // ---------- carga inicial ----------
-  const cargarBase = async () => {
+  const cargarProductores = async () => {
     setCargando(true);
     setError('');
     try {
-      const [resSemanas, resProductores] = await Promise.all([
-        registroApi.listarSemanas(),
-        productoresApi.listarProductores(),
-      ]);
-      const listaSemanas = desempacar(resSemanas) || [];
-      const listaProductores = (desempacar(resProductores) || []).filter((p) => p.activo !== false);
-      setSemanas(listaSemanas);
-      setProductores(listaProductores);
-      if (listaSemanas.length && !semanaId) setSemanaId(String(listaSemanas[0].id));
+      const lista = (desempacar(await productoresApi.listarProductores()) || []).filter((p) => p.activo !== false);
+      setProductores(lista);
     } catch (err) {
-      setError(err.response?.data?.message || 'No se pudieron cargar las semanas y los productores.');
+      setError(err.response?.data?.message || 'No se pudieron cargar los productores.');
     } finally {
       setCargando(false);
     }
   };
 
   useEffect(() => {
-    cargarBase();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    cargarProductores();
   }, []);
 
-  // ---------- hoja del productor ----------
   const cargarHoja = useCallback(async () => {
-    if (!productorId || !semanaId) {
+    if (!productorId) {
+      setHoja(null);
       setDias([]);
-      setPago(null);
       return;
     }
     setCargandoHoja(true);
     setError('');
     try {
-      const hoja = desempacar(await registroApi.obtenerHoja(productorId, semanaId));
-      setDias(hoja.dias.map((d) => ({ ...d, litros: d.litros === null ? '' : String(d.litros) })));
-      setPrecioLitro(hoja.precio_litro ? String(hoja.precio_litro) : '');
-      setMoneda(hoja.moneda || 'BS');
-      setPago(hoja.pago || null);
+      const params = semanaId
+        ? { productor_id: productorId, semana_id: semanaId }
+        : { productor_id: productorId, dia_inicio: diaInicio, dia_fin: diaFin };
+
+      const datos = desempacar(await registroApi.obtenerHoja(params));
+      setHoja(datos);
+      setDias(datos.dias.map((d) => ({ ...d, litros: d.litros === null ? '' : String(d.litros) })));
+      setPrecioLitro(datos.precio_litro ? String(datos.precio_litro) : '');
+      setMoneda(datos.moneda || 'BS');
+      if (semanaId) {
+        setDiaInicio(datos.semana.dia_inicio);
+        setDiaFin(datos.semana.dia_fin);
+      }
     } catch (err) {
-      setError(err.response?.data?.message || 'No se pudo abrir la hoja de la semana.');
+      setError(err.response?.data?.message || 'No se pudo abrir la semana.');
     } finally {
       setCargandoHoja(false);
     }
-  }, [productorId, semanaId]);
+  }, [productorId, diaInicio, diaFin, semanaId]);
 
   useEffect(() => {
     cargarHoja();
   }, [cargarHoja]);
 
-  const cargarResumen = useCallback(async () => {
-    if (!semanaId) return setResumen(null);
+  const cargarHistorial = useCallback(async () => {
+    if (!productorId) return setHistorial([]);
     try {
-      setResumen(desempacar(await registroApi.resumenSemana(semanaId)));
+      setHistorial(desempacar(await registroApi.historialProductor(productorId)) || []);
     } catch {
-      setResumen(null);
+      setHistorial([]);
     }
-  }, [semanaId]);
+  }, [productorId]);
 
   useEffect(() => {
-    cargarResumen();
-  }, [cargarResumen]);
+    cargarHistorial();
+  }, [cargarHistorial]);
 
-  // ---------- totales en vivo ----------
   const totales = useMemo(() => {
     const litros = dias.reduce((s, d) => s + aNumero(d.litros, 0), 0);
     const precio = aNumero(precioLitro, 0);
@@ -137,11 +128,8 @@ const RegistroLeche = () => {
     };
   }, [dias, precioLitro]);
 
-  const cambiarLitros = (fecha, valor) => {
-    setDias((prev) => prev.map((d) => (d.fecha === fecha ? { ...d, litros: valor } : d)));
-  };
-
   const elegirProductor = (id) => {
+    setSemanaId(null);
     setProductorId(id);
     const p = productores.find((x) => String(x.id) === String(id));
     if (p) {
@@ -150,26 +138,32 @@ const RegistroLeche = () => {
     }
   };
 
-  // ---------- acciones ----------
-  const guardarSemanaProductor = async () => {
-    if (!productorId || !semanaId) return setError('Seleccione el productor y la semana.');
+  const cambiarDia = (cual, valor) => {
+    setSemanaId(null);
+    if (cual === 'inicio') setDiaInicio(Number(valor));
+    else setDiaFin(Number(valor));
+  };
+
+  const cuerpoHoja = () => ({
+    productor_id: Number(productorId),
+    semana_id: hoja.semana.id,
+    precio_litro: aNumero(precioLitro, 0),
+    moneda,
+    dias: dias.map((d) => ({ fecha: d.fecha, litros: vacio(d.litros) ? null : aNumero(d.litros, 0) })),
+  });
+
+  const guardarSemana = async () => {
+    if (!hoja) return;
     if (aNumero(precioLitro, 0) <= 0) return setError('Indique a cuánto se le paga el litro esta semana.');
 
     setGuardando(true);
     setError('');
     try {
-      const respuesta = await registroApi.guardarHoja({
-        productor_id: Number(productorId),
-        semana_id: Number(semanaId),
-        precio_litro: aNumero(precioLitro, 0),
-        moneda,
-        dias: dias.map((d) => ({ fecha: d.fecha, litros: vacio(d.litros) ? null : aNumero(d.litros, 0) })),
-      });
-      const hoja = desempacar(respuesta);
-      setDias(hoja.dias.map((d) => ({ ...d, litros: d.litros === null ? '' : String(d.litros) })));
-      setPago(hoja.pago || null);
-      setAviso(`Semana guardada: ${hoja.totales.total_litros} litros.`);
-      await cargarResumen();
+      const datos = desempacar(await registroApi.guardarHoja(cuerpoHoja()));
+      setHoja(datos);
+      setDias(datos.dias.map((d) => ({ ...d, litros: d.litros === null ? '' : String(d.litros) })));
+      setAviso(`Semana guardada: ${datos.totales.total_litros} litros.`);
+      await cargarHistorial();
     } catch (err) {
       setError(err.response?.data?.message || 'No se pudo guardar la semana.');
     } finally {
@@ -178,28 +172,22 @@ const RegistroLeche = () => {
   };
 
   const registrarPago = async () => {
-    if (totales.litros <= 0) return setError('Cargue los litros antes de registrar el pago.');
-    const texto = `${formatearMontoEnMoneda(totales.pagar, moneda)} por ${totales.litros} litros`;
-    if (!window.confirm(`¿Registrar el pago de ${productor?.nombre}? Total: ${texto}`)) return;
+    if (!hoja || totales.litros <= 0) return setError('Cargue los litros antes de registrar el pago.');
+    const resumen = `${totales.litros} litros × ${formatearMontoEnMoneda(aNumero(precioLitro, 0), moneda)} = ${formatearMontoEnMoneda(totales.pagar, moneda)}`;
+    if (!window.confirm(`¿Registrar el pago de ${productor?.nombre}?\n${resumen}`)) return;
 
     setGuardando(true);
     setError('');
     try {
-      await registroApi.guardarHoja({
+      await registroApi.guardarHoja(cuerpoHoja());
+      await registroApi.registrarPagoSemana({
         productor_id: Number(productorId),
-        semana_id: Number(semanaId),
-        precio_litro: aNumero(precioLitro, 0),
-        moneda,
-        dias: dias.map((d) => ({ fecha: d.fecha, litros: vacio(d.litros) ? null : aNumero(d.litros, 0) })),
-      });
-      const respuesta = await registroApi.registrarPagoSemana({
-        productor_id: Number(productorId),
-        semana_id: Number(semanaId),
+        semana_id: hoja.semana.id,
         marcar_pagado: true,
       });
-      setPago(desempacar(respuesta));
       setAviso('Pago registrado.');
-      await cargarResumen();
+      await cargarHoja();
+      await cargarHistorial();
     } catch (err) {
       setError(err.response?.data?.message || 'No se pudo registrar el pago.');
     } finally {
@@ -207,60 +195,29 @@ const RegistroLeche = () => {
     }
   };
 
-  const abrirSemana = async (e) => {
-    e.preventDefault();
-    setGuardandoSemana(true);
-    setErrorSemana('');
+  const cambiarEstadoSemana = async (estado) => {
+    if (!hoja) return;
     try {
-      const nueva = desempacar(await registroApi.abrirSemana(formSemana));
-      const resSemanas = desempacar(await registroApi.listarSemanas()) || [];
-      setSemanas(resSemanas);
-      setSemanaId(String(nueva.id));
-      setModalSemana(false);
-      setAviso(`Semana abierta: ${etiquetaSemana(nueva)}.`);
+      await registroApi.cambiarEstadoSemana(hoja.semana.id, estado);
+      setAviso(estado === 'cerrada' ? 'Semana cerrada.' : 'Semana reabierta.');
+      await cargarHoja();
     } catch (err) {
-      setErrorSemana(err.response?.data?.message || 'No se pudo abrir la semana.');
-    } finally {
-      setGuardandoSemana(false);
+      setError(err.response?.data?.message || 'No se pudo cambiar el estado de la semana.');
     }
-  };
-
-  const cerrarSemanaActual = async () => {
-    if (!semana || semana.estado === 'cerrada') return;
-    if (!window.confirm(`¿Cerrar la semana ${etiquetaSemana(semana)}? Ya no se podrán editar los litros.`)) return;
-    try {
-      await registroApi.cerrarSemana(semana.id);
-      setSemanas((prev) => prev.map((s) => (s.id === semana.id ? { ...s, estado: 'cerrada' } : s)));
-      setAviso('Semana cerrada.');
-    } catch (err) {
-      setError(err.response?.data?.message || 'No se pudo cerrar la semana.');
-    }
-  };
-
-  const abrirModalSemana = () => {
-    const lunes = lunesDe(hoy());
-    setFormSemana({ fecha_inicio: lunes, fecha_fin: sumarDias(lunes, 6) });
-    setErrorSemana('');
-    setModalSemana(true);
   };
 
   if (cargando) return <LoadingSpinner mensaje="Cargando registro de leche..." />;
 
-  const semanaCerrada = semana?.estado === 'cerrada';
+  const cerrada = hoja?.semana?.estado === 'cerrada';
 
   return (
     <div>
-      <div className="d-flex justify-content-between align-items-start mb-3 gap-3 flex-wrap">
-        <div>
-          <h4 className="mb-1">Registro diario de leche</h4>
-          <p className="text-muted mb-0">
-            Abra la semana, elija el productor y cargue los litros de cada día. Al final la pantalla totaliza los
-            litros y cuánto hay que cancelarle.
-          </p>
-        </div>
-        <Button variant="success" onClick={abrirModalSemana}>
-          + Abrir semana
-        </Button>
+      <div className="mb-3">
+        <h4 className="mb-1">Registro diario de leche</h4>
+        <p className="text-muted mb-0">
+          Elija el productor y en qué días corre su semana. Cargue los litros de cada día y abajo queda el total a
+          cancelarle.
+        </p>
       </div>
 
       {error && (
@@ -277,18 +234,6 @@ const RegistroLeche = () => {
       <Card className="mb-3">
         <Card.Body className="d-flex flex-wrap gap-3 align-items-end">
           <div style={{ minWidth: 240 }}>
-            <Form.Label className="small text-muted mb-1">Semana</Form.Label>
-            <Form.Select value={semanaId} onChange={(e) => setSemanaId(e.target.value)}>
-              <option value="">Seleccione una semana</option>
-              {semanas.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {etiquetaSemana(s)} {s.estado === 'cerrada' ? '(cerrada)' : ''}
-                </option>
-              ))}
-            </Form.Select>
-          </div>
-
-          <div style={{ minWidth: 240 }}>
             <Form.Label className="small text-muted mb-1">Productor</Form.Label>
             <Form.Select value={productorId} onChange={(e) => elegirProductor(e.target.value)}>
               <option value="">Seleccione un productor</option>
@@ -298,6 +243,29 @@ const RegistroLeche = () => {
                 </option>
               ))}
             </Form.Select>
+          </div>
+
+          <div style={{ minWidth: 150 }}>
+            <Form.Label className="small text-muted mb-1">Inicia</Form.Label>
+            <Form.Select value={diaInicio} onChange={(e) => cambiarDia('inicio', e.target.value)}>
+              {OPCIONES_DIA.map((d) => (
+                <option key={d.valor} value={d.valor}>
+                  {d.nombre}
+                </option>
+              ))}
+            </Form.Select>
+          </div>
+
+          <div style={{ minWidth: 150 }}>
+            <Form.Label className="small text-muted mb-1">Termina</Form.Label>
+            <Form.Select value={diaFin} onChange={(e) => cambiarDia('fin', e.target.value)}>
+              {OPCIONES_DIA.map((d) => (
+                <option key={d.valor} value={d.valor}>
+                  {d.nombre}
+                </option>
+              ))}
+            </Form.Select>
+            <Form.Text className="text-muted">{largoCiclo(diaInicio, diaFin)} día(s)</Form.Text>
           </div>
 
           <div style={{ minWidth: 300 }}>
@@ -320,49 +288,46 @@ const RegistroLeche = () => {
               />
             </InputGroup>
           </div>
-
-          {semana && (
-            <div className="ms-auto d-flex align-items-center gap-2">
-              <Badge bg={semanaCerrada ? 'secondary' : 'success'}>
-                {semanaCerrada ? 'Semana cerrada' : 'Semana abierta'}
-              </Badge>
-              {!semanaCerrada && (
-                <Button size="sm" variant="outline-secondary" onClick={cerrarSemanaActual}>
-                  Cerrar semana
-                </Button>
-              )}
-            </div>
-          )}
         </Card.Body>
       </Card>
 
-      {!productorId || !semanaId ? (
+      {!productorId ? (
         <Alert variant="light" className="border text-muted">
-          Elija una semana y un productor para cargar los litros del día.
+          Seleccione un productor para cargar su semana.
         </Alert>
       ) : cargandoHoja ? (
-        <LoadingSpinner mensaje="Abriendo la hoja de la semana..." />
-      ) : (
+        <LoadingSpinner mensaje="Abriendo la semana..." />
+      ) : hoja ? (
         <Card>
           <Card.Header className="d-flex justify-content-between align-items-center flex-wrap gap-2">
             <div className="d-flex align-items-center gap-2">
               <Punto color={productor?.color_identificativo} />
               <strong>{productor?.nombre}</strong>
-              <span className="text-muted small">{etiquetaSemana(semana)}</span>
+              <span className="text-muted small">{etiquetaDias(diaInicio, diaFin)}</span>
             </div>
-            {pago && (
-              <Badge bg={pago.estado_pago === 'pagado' ? 'success' : 'warning'}>
-                {pago.estado_pago === 'pagado' ? `Pagado el ${formatoCorto(pago.fecha_pago)}` : 'Pago pendiente'}
-              </Badge>
-            )}
+            <div className="d-flex align-items-center gap-2">
+              {hoja.pago && (
+                <Badge bg={hoja.pago.estado_pago === 'pagado' ? 'success' : 'warning'}>
+                  {hoja.pago.estado_pago === 'pagado'
+                    ? `Pagado el ${formatoCorto(hoja.pago.fecha_pago)}`
+                    : 'Pago pendiente'}
+                </Badge>
+              )}
+              <Button
+                size="sm"
+                variant="outline-secondary"
+                onClick={() => cambiarEstadoSemana(cerrada ? 'abierta' : 'cerrada')}
+              >
+                {cerrada ? 'Reabrir semana' : 'Cerrar semana'}
+              </Button>
+            </div>
           </Card.Header>
 
           <Table hover responsive className="mb-0 align-middle">
             <thead>
               <tr>
-                <th style={{ width: 160 }}>Día</th>
-                <th style={{ width: 140 }}>Fecha</th>
-                <th style={{ width: 200 }}>Litros</th>
+                <th style={{ width: 220 }}>Día</th>
+                <th style={{ width: 220 }}>Litros</th>
                 <th>Subtotal</th>
               </tr>
             </thead>
@@ -372,7 +337,6 @@ const RegistroLeche = () => {
                 return (
                   <tr key={d.fecha}>
                     <td className="fw-semibold">{d.dia}</td>
-                    <td>{formatoCorto(d.fecha)}</td>
                     <td>
                       <Form.Control
                         type="number"
@@ -380,13 +344,19 @@ const RegistroLeche = () => {
                         step="0.01"
                         size="sm"
                         value={d.litros}
-                        disabled={semanaCerrada}
+                        disabled={cerrada}
                         placeholder="—"
-                        onChange={(e) => cambiarLitros(d.fecha, e.target.value)}
+                        onChange={(e) =>
+                          setDias((prev) =>
+                            prev.map((x) => (x.fecha === d.fecha ? { ...x, litros: e.target.value } : x))
+                          )
+                        }
                       />
                     </td>
                     <td className={litros > 0 ? '' : 'text-muted'}>
-                      {litros > 0 ? formatearMontoEnMoneda(litros * aNumero(precioLitro, 0), moneda) : 'No trajo'}
+                      {litros > 0
+                        ? formatearMontoEnMoneda(litros * aNumero(precioLitro, 0), moneda)
+                        : 'No trajo'}
                     </td>
                   </tr>
                 );
@@ -394,7 +364,7 @@ const RegistroLeche = () => {
             </tbody>
             <tfoot className="table-light">
               <tr>
-                <th colSpan={2}>
+                <th>
                   Total de la semana
                   <div className="text-muted fw-normal small">{totales.dias} día(s) con leche</div>
                 </th>
@@ -405,7 +375,7 @@ const RegistroLeche = () => {
           </Table>
 
           <Card.Footer className="d-flex justify-content-end gap-2 flex-wrap">
-            <Button variant="outline-success" onClick={guardarSemanaProductor} disabled={guardando || semanaCerrada}>
+            <Button variant="outline-success" onClick={guardarSemana} disabled={guardando || cerrada}>
               {guardando ? 'Guardando...' : 'Guardar semana'}
             </Button>
             <Button variant="success" onClick={registrarPago} disabled={guardando || totales.litros <= 0}>
@@ -413,96 +383,49 @@ const RegistroLeche = () => {
             </Button>
           </Card.Footer>
         </Card>
-      )}
+      ) : null}
 
-      {resumen && resumen.productores?.length > 0 && (
+      {historial.length > 0 && (
         <Card className="mt-4">
-          <Card.Header>
-            Resumen de la semana {etiquetaSemana(resumen.semana)} — {resumen.total_litros} litros en total
-          </Card.Header>
+          <Card.Header>Semanas anteriores de {productor?.nombre}</Card.Header>
           <Table hover responsive className="mb-0 align-middle">
             <thead>
               <tr>
-                <th>Productor</th>
-                <th>Ruta</th>
                 <th>Días</th>
+                <th>Con leche</th>
                 <th>Litros</th>
-                <th>Precio/litro</th>
-                <th>Total a cancelar</th>
+                <th>Total</th>
+                <th>Pago</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
-              {resumen.productores.map((p) => (
-                <tr
-                  key={p.productor_id}
-                  role="button"
-                  onClick={() => setProductorId(String(p.productor_id))}
-                >
+              {historial.map((s) => (
+                <tr key={s.id} className={String(s.id) === String(hoja?.semana?.id) ? 'table-active' : ''}>
+                  <td className="fw-semibold">{s.etiqueta}</td>
+                  <td>{s.dias_con_leche}</td>
+                  <td>{s.total_litros}</td>
+                  <td>{formatearMontoEnMoneda(s.total_pagar, s.moneda)}</td>
                   <td>
-                    <div className="d-flex align-items-center gap-2">
-                      <Punto color={p.color_identificativo} />
-                      {p.nombre}
-                    </div>
+                    {s.estado_pago === 'pagado' ? (
+                      <Badge bg="success">Pagado</Badge>
+                    ) : s.estado_pago ? (
+                      <Badge bg="warning">Pendiente</Badge>
+                    ) : (
+                      <span className="text-muted small">—</span>
+                    )}
                   </td>
-                  <td className="text-muted small">{p.ruta?.nombre || '—'}</td>
-                  <td>{p.dias}</td>
-                  <td>{p.total_litros}</td>
-                  <td>{formatearMontoEnMoneda(p.precio_litro, p.moneda)}</td>
-                  <td className="fw-semibold">{formatearMontoEnMoneda(p.total_pagar, p.moneda)}</td>
+                  <td className="text-end">
+                    <Button size="sm" variant="outline-secondary" onClick={() => setSemanaId(s.id)}>
+                      Abrir
+                    </Button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </Table>
         </Card>
       )}
-
-      <Modal show={modalSemana} onHide={() => setModalSemana(false)} centered>
-        <Form onSubmit={abrirSemana}>
-          <Modal.Header closeButton>
-            <Modal.Title>Abrir semana</Modal.Title>
-          </Modal.Header>
-          <Modal.Body>
-            {errorSemana && <Alert variant="danger">{errorSemana}</Alert>}
-            <p className="text-muted">
-              Elija el día en que empieza la recolección y el día en que termina. Por defecto va de lunes a domingo.
-            </p>
-            <div className="row g-3">
-              <div className="col-6">
-                <Form.Label>Comienza</Form.Label>
-                <Form.Control
-                  type="date"
-                  value={formSemana.fecha_inicio}
-                  onChange={(e) =>
-                    setFormSemana((prev) => ({
-                      fecha_inicio: e.target.value,
-                      fecha_fin: prev.fecha_fin < e.target.value ? sumarDias(e.target.value, 6) : prev.fecha_fin,
-                    }))
-                  }
-                  required
-                />
-              </div>
-              <div className="col-6">
-                <Form.Label>Termina</Form.Label>
-                <Form.Control
-                  type="date"
-                  value={formSemana.fecha_fin}
-                  min={formSemana.fecha_inicio}
-                  onChange={(e) => setFormSemana((prev) => ({ ...prev, fecha_fin: e.target.value }))}
-                  required
-                />
-              </div>
-            </div>
-          </Modal.Body>
-          <Modal.Footer>
-            <Button variant="light" onClick={() => setModalSemana(false)}>
-              Cancelar
-            </Button>
-            <Button variant="success" type="submit" disabled={guardandoSemana}>
-              {guardandoSemana ? 'Abriendo...' : 'Abrir semana'}
-            </Button>
-          </Modal.Footer>
-        </Form>
-      </Modal>
     </div>
   );
 };

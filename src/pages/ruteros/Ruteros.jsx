@@ -1,10 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Table, Button, Modal, Form, Alert, Badge, InputGroup, Card, Tabs, Tab } from 'react-bootstrap';
 import * as ruterosApi from '../../api/ruteros.api';
-import * as registroApi from '../../api/registroLeche.api';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { useMoneda } from '../../context/MonedaContext';
-import { aNumero, desempacar, etiquetaSemana, formatoCorto, vacio } from '../../utils/fechas';
+import { OPCIONES_DIA, aNumero, desempacar, etiquetaDias, formatoCorto, largoCiclo, vacio } from '../../utils/fechas';
 
 const OPCIONES_MONEDA = [
   { codigo: 'COP', etiqueta: 'COL$ — Pesos colombianos' },
@@ -23,14 +22,18 @@ const Ruteros = () => {
   const [aviso, setAviso] = useState('');
 
   const [ruteros, setRuteros] = useState([]);
-  const [semanas, setSemanas] = useState([]);
   const [ruteroId, setRuteroId] = useState('');
-  const [semanaId, setSemanaId] = useState('');
 
+  // La semana se define por días de la semana, no por fechas.
+  const [diaInicio, setDiaInicio] = useState(1); // lunes
+  const [diaFin, setDiaFin] = useState(0); // domingo
+  const [semanaId, setSemanaId] = useState(null); // solo al reabrir del historial
+
+  const [hoja, setHoja] = useState(null);
   const [dias, setDias] = useState([]);
   const [precioLitro, setPrecioLitro] = useState('');
   const [moneda, setMoneda] = useState('COP');
-  const [pago, setPago] = useState(null);
+  const [historial, setHistorial] = useState([]);
   const [cargandoHoja, setCargandoHoja] = useState(false);
   const [guardando, setGuardando] = useState(false);
 
@@ -45,25 +48,13 @@ const Ruteros = () => {
     () => ruteros.find((r) => String(r.id) === String(ruteroId)) || null,
     [ruteros, ruteroId]
   );
-  const semana = useMemo(
-    () => semanas.find((s) => String(s.id) === String(semanaId)) || null,
-    [semanas, semanaId]
-  );
-  const semanaCerrada = semana?.estado === 'cerrada';
+  const cerrada = hoja?.semana?.estado === 'cerrada';
 
-  const cargarBase = async () => {
+  const cargarRuteros = async () => {
     setCargando(true);
     setError('');
     try {
-      const [resRuteros, resSemanas] = await Promise.all([
-        ruterosApi.listarRuteros(),
-        registroApi.listarSemanas(),
-      ]);
-      const listaRuteros = desempacar(resRuteros) || [];
-      const listaSemanas = desempacar(resSemanas) || [];
-      setRuteros(listaRuteros);
-      setSemanas(listaSemanas);
-      if (listaSemanas.length && !semanaId) setSemanaId(String(listaSemanas[0].id));
+      setRuteros(desempacar(await ruterosApi.listarRuteros()) || []);
     } catch (err) {
       setError(err.response?.data?.message || 'No se pudieron cargar los ruteros.');
     } finally {
@@ -72,22 +63,26 @@ const Ruteros = () => {
   };
 
   useEffect(() => {
-    cargarBase();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    cargarRuteros();
   }, []);
 
   const cargarHoja = useCallback(async () => {
-    if (!ruteroId || !semanaId) {
+    if (!ruteroId) {
+      setHoja(null);
       setDias([]);
-      setPago(null);
       return;
     }
     setCargandoHoja(true);
     setError('');
     try {
-      const hoja = desempacar(await ruterosApi.obtenerHojaRutero(ruteroId, semanaId));
+      const params = semanaId
+        ? { rutero_id: ruteroId, semana_id: semanaId }
+        : { rutero_id: ruteroId, dia_inicio: diaInicio, dia_fin: diaFin };
+
+      const datos = desempacar(await ruterosApi.obtenerHojaRutero(params));
+      setHoja(datos);
       setDias(
-        hoja.dias.map((d) => ({
+        datos.dias.map((d) => ({
           ...d,
           litros: d.litros === null ? '' : String(d.litros),
           sobrante: d.sobrante ? String(d.sobrante) : '',
@@ -95,19 +90,35 @@ const Ruteros = () => {
           descripcion: d.descripcion || '',
         }))
       );
-      setPrecioLitro(hoja.precio_litro ? String(hoja.precio_litro) : '');
-      setMoneda(hoja.moneda || 'COP');
-      setPago(hoja.pago || null);
+      setPrecioLitro(datos.precio_litro ? String(datos.precio_litro) : '');
+      setMoneda(datos.moneda || 'COP');
+      if (semanaId) {
+        setDiaInicio(datos.semana.dia_inicio);
+        setDiaFin(datos.semana.dia_fin);
+      }
     } catch (err) {
-      setError(err.response?.data?.message || 'No se pudo abrir la hoja de la semana.');
+      setError(err.response?.data?.message || 'No se pudo abrir la semana.');
     } finally {
       setCargandoHoja(false);
     }
-  }, [ruteroId, semanaId]);
+  }, [ruteroId, diaInicio, diaFin, semanaId]);
 
   useEffect(() => {
     cargarHoja();
   }, [cargarHoja]);
+
+  const cargarHistorial = useCallback(async () => {
+    if (!ruteroId) return setHistorial([]);
+    try {
+      setHistorial(desempacar(await ruterosApi.historialRutero(ruteroId)) || []);
+    } catch {
+      setHistorial([]);
+    }
+  }, [ruteroId]);
+
+  useEffect(() => {
+    cargarHistorial();
+  }, [cargarHistorial]);
 
   const totales = useMemo(() => {
     const litros = dias.reduce((s, d) => s + aNumero(d.litros, 0), 0);
@@ -124,18 +135,25 @@ const Ruteros = () => {
     setDias((prev) => prev.map((d) => (d.fecha === fecha ? { ...d, [campo]: valor } : d)));
   };
 
+  const cambiarDiaSemana = (cual, valor) => {
+    setSemanaId(null);
+    if (cual === 'inicio') setDiaInicio(Number(valor));
+    else setDiaFin(Number(valor));
+  };
+
   const elegirRutero = (id) => {
+    setSemanaId(null);
     setRuteroId(id);
     const r = ruteros.find((x) => String(x.id) === String(id));
     if (r) {
-      if (!vacio(r.precio_litro) && aNumero(r.precio_litro, 0) > 0) setPrecioLitro(String(r.precio_litro));
+      if (aNumero(r.precio_litro, 0) > 0) setPrecioLitro(String(r.precio_litro));
       if (r.moneda) setMoneda(r.moneda);
     }
   };
 
   const cuerpoHoja = () => ({
     rutero_id: Number(ruteroId),
-    semana_id: Number(semanaId),
+    semana_id: hoja.semana.id,
     precio_litro: aNumero(precioLitro, 0),
     moneda,
     dias: dias.map((d) => ({
@@ -148,15 +166,16 @@ const Ruteros = () => {
   });
 
   const guardarHoja = async () => {
-    if (!ruteroId || !semanaId) return setError('Seleccione el rutero y la semana.');
+    if (!hoja) return;
     if (aNumero(precioLitro, 0) <= 0) return setError('Indique cuánto se le paga al rutero por litro.');
 
     setGuardando(true);
     setError('');
     try {
-      const hoja = desempacar(await ruterosApi.guardarHojaRutero(cuerpoHoja()));
-      setPago(hoja.pago || null);
-      setAviso(`Semana guardada: ${hoja.totales.total_litros} litros.`);
+      const datos = desempacar(await ruterosApi.guardarHojaRutero(cuerpoHoja()));
+      setHoja(datos);
+      setAviso(`Semana guardada: ${datos.totales.total_litros} litros.`);
+      await cargarHistorial();
     } catch (err) {
       setError(err.response?.data?.message || 'No se pudo guardar la semana.');
     } finally {
@@ -165,21 +184,22 @@ const Ruteros = () => {
   };
 
   const registrarPago = async () => {
-    if (totales.litros <= 0) return setError('Cargue los litros antes de registrar el pago.');
-    const texto = `${totales.litros} litros × ${formatearMontoEnMoneda(aNumero(precioLitro, 0), moneda)} = ${formatearMontoEnMoneda(totales.pagar, moneda)}`;
-    if (!window.confirm(`¿Registrar el pago de ${rutero?.nombre}?\n${texto}`)) return;
+    if (!hoja || totales.litros <= 0) return setError('Cargue los litros antes de registrar el pago.');
+    const resumen = `${totales.litros} litros × ${formatearMontoEnMoneda(aNumero(precioLitro, 0), moneda)} = ${formatearMontoEnMoneda(totales.pagar, moneda)}`;
+    if (!window.confirm(`¿Registrar el pago de ${rutero?.nombre}?\n${resumen}`)) return;
 
     setGuardando(true);
     setError('');
     try {
       await ruterosApi.guardarHojaRutero(cuerpoHoja());
-      const respuesta = await ruterosApi.registrarPagoRutero({
+      await ruterosApi.registrarPagoRutero({
         rutero_id: Number(ruteroId),
-        semana_id: Number(semanaId),
+        semana_id: hoja.semana.id,
         marcar_pagado: true,
       });
-      setPago(desempacar(respuesta));
       setAviso('Pago registrado.');
+      await cargarHoja();
+      await cargarHistorial();
     } catch (err) {
       setError(err.response?.data?.message || 'No se pudo registrar el pago.');
     } finally {
@@ -227,7 +247,7 @@ const Ruteros = () => {
       }
       setMostrarModal(false);
       setAviso(editandoId ? 'Rutero actualizado.' : 'Rutero registrado.');
-      await cargarBase();
+      await cargarRuteros();
     } catch (err) {
       setErrorForm(err.response?.data?.message || 'No se pudo guardar el rutero.');
     } finally {
@@ -245,7 +265,7 @@ const Ruteros = () => {
       } else {
         await ruterosApi.actualizarRutero(r.id, { activo: true });
       }
-      await cargarBase();
+      await cargarRuteros();
     } catch (err) {
       setError(err.response?.data?.message || 'No se pudo cambiar el estado del rutero.');
     }
@@ -261,7 +281,7 @@ const Ruteros = () => {
         <div>
           <h4 className="mb-1">Ruteros</h4>
           <p className="text-muted mb-0">
-            Cada rutero acumula los litros que trae durante la semana. El total se multiplica por el precio por litro
+            Cada rutero acumula los litros que trae durante su semana. El total se multiplica por el precio por litro
             que se le cancela.
           </p>
         </div>
@@ -282,23 +302,9 @@ const Ruteros = () => {
       )}
 
       <Tabs activeKey={pestana} onSelect={(k) => setPestana(k || 'hoja')} className="mb-3">
-        {/* ---------------- Hoja semanal ---------------- */}
         <Tab eventKey="hoja" title="Hoja semanal">
           <Card className="mb-3">
             <Card.Body className="d-flex flex-wrap gap-3 align-items-end">
-              <div style={{ minWidth: 240 }}>
-                <Form.Label className="small text-muted mb-1">Semana</Form.Label>
-                <Form.Select value={semanaId} onChange={(e) => setSemanaId(e.target.value)}>
-                  <option value="">Seleccione una semana</option>
-                  {semanas.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {etiquetaSemana(s)} {s.estado === 'cerrada' ? '(cerrada)' : ''}
-                    </option>
-                  ))}
-                </Form.Select>
-                <Form.Text className="text-muted">Las semanas se abren en Registro diario de leche.</Form.Text>
-              </div>
-
               <div style={{ minWidth: 220 }}>
                 <Form.Label className="small text-muted mb-1">Rutero</Form.Label>
                 <Form.Select value={ruteroId} onChange={(e) => elegirRutero(e.target.value)}>
@@ -311,6 +317,29 @@ const Ruteros = () => {
                       </option>
                     ))}
                 </Form.Select>
+              </div>
+
+              <div style={{ minWidth: 150 }}>
+                <Form.Label className="small text-muted mb-1">Inicia</Form.Label>
+                <Form.Select value={diaInicio} onChange={(e) => cambiarDiaSemana('inicio', e.target.value)}>
+                  {OPCIONES_DIA.map((d) => (
+                    <option key={d.valor} value={d.valor}>
+                      {d.nombre}
+                    </option>
+                  ))}
+                </Form.Select>
+              </div>
+
+              <div style={{ minWidth: 150 }}>
+                <Form.Label className="small text-muted mb-1">Termina</Form.Label>
+                <Form.Select value={diaFin} onChange={(e) => cambiarDiaSemana('fin', e.target.value)}>
+                  {OPCIONES_DIA.map((d) => (
+                    <option key={d.valor} value={d.valor}>
+                      {d.nombre}
+                    </option>
+                  ))}
+                </Form.Select>
+                <Form.Text className="text-muted">{largoCiclo(diaInicio, diaFin)} día(s)</Form.Text>
               </div>
 
               <div style={{ minWidth: 300 }}>
@@ -336,23 +365,23 @@ const Ruteros = () => {
             </Card.Body>
           </Card>
 
-          {!ruteroId || !semanaId ? (
+          {!ruteroId ? (
             <Alert variant="light" className="border text-muted">
-              Elija una semana y un rutero para cargar la libreta.
+              Seleccione un rutero para cargar su libreta.
             </Alert>
           ) : cargandoHoja ? (
-            <LoadingSpinner mensaje="Abriendo la hoja de la semana..." />
-          ) : (
+            <LoadingSpinner mensaje="Abriendo la semana..." />
+          ) : hoja ? (
             <Card>
               <Card.Header className="d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <div>
                   <strong>{rutero?.nombre}</strong>{' '}
-                  <span className="text-muted small">{etiquetaSemana(semana)}</span>
+                  <span className="text-muted small">{etiquetaDias(diaInicio, diaFin)}</span>
                 </div>
-                {pago && (
-                  <Badge bg={pago.estado_pago === 'pagado' ? 'success' : 'warning'}>
-                    {pago.estado_pago === 'pagado'
-                      ? `Pagado el ${formatoCorto(pago.fecha_pago)}`
+                {hoja.pago && (
+                  <Badge bg={hoja.pago.estado_pago === 'pagado' ? 'success' : 'warning'}>
+                    {hoja.pago.estado_pago === 'pagado'
+                      ? `Pagado el ${formatoCorto(hoja.pago.fecha_pago)}`
                       : 'Pago pendiente'}
                   </Badge>
                 )}
@@ -362,7 +391,6 @@ const Ruteros = () => {
                 <thead>
                   <tr>
                     <th style={{ width: 130 }}>Día</th>
-                    <th style={{ width: 120 }}>Fecha</th>
                     <th style={{ width: 140 }}>Litros</th>
                     <th style={{ width: 120 }}>Sobrante</th>
                     <th style={{ width: 120 }}>Faltante</th>
@@ -372,8 +400,7 @@ const Ruteros = () => {
                 <tbody>
                   {dias.map((d) => (
                     <tr key={d.fecha}>
-                      <td className="fw-semibold text-uppercase small">{d.dia}</td>
-                      <td>{formatoCorto(d.fecha)}</td>
+                      <td className="fw-semibold">{d.dia}</td>
                       <td>
                         <Form.Control
                           type="number"
@@ -381,7 +408,7 @@ const Ruteros = () => {
                           step="0.01"
                           size="sm"
                           value={d.litros}
-                          disabled={semanaCerrada}
+                          disabled={cerrada}
                           placeholder="—"
                           onChange={(e) => cambiarDia(d.fecha, 'litros', e.target.value)}
                         />
@@ -393,7 +420,7 @@ const Ruteros = () => {
                           step="0.01"
                           size="sm"
                           value={d.sobrante}
-                          disabled={semanaCerrada}
+                          disabled={cerrada}
                           placeholder="0"
                           onChange={(e) => cambiarDia(d.fecha, 'sobrante', e.target.value)}
                         />
@@ -405,7 +432,7 @@ const Ruteros = () => {
                           step="0.01"
                           size="sm"
                           value={d.faltante}
-                          disabled={semanaCerrada}
+                          disabled={cerrada}
                           placeholder="0"
                           onChange={(e) => cambiarDia(d.fecha, 'faltante', e.target.value)}
                         />
@@ -414,7 +441,7 @@ const Ruteros = () => {
                         <Form.Control
                           size="sm"
                           value={d.descripcion}
-                          disabled={semanaCerrada}
+                          disabled={cerrada}
                           placeholder="Nota del día"
                           onChange={(e) => cambiarDia(d.fecha, 'descripcion', e.target.value)}
                         />
@@ -424,7 +451,7 @@ const Ruteros = () => {
                 </tbody>
                 <tfoot className="table-light">
                   <tr>
-                    <th colSpan={2}>Totales de la semana</th>
+                    <th>Totales</th>
                     <th>{totales.litros} litros</th>
                     <th>{totales.sobrante}</th>
                     <th>{totales.faltante}</th>
@@ -439,7 +466,7 @@ const Ruteros = () => {
               </Table>
 
               <Card.Footer className="d-flex justify-content-end gap-2 flex-wrap">
-                <Button variant="outline-success" onClick={guardarHoja} disabled={guardando || semanaCerrada}>
+                <Button variant="outline-success" onClick={guardarHoja} disabled={guardando || cerrada}>
                   {guardando ? 'Guardando...' : 'Guardar semana'}
                 </Button>
                 <Button variant="success" onClick={registrarPago} disabled={guardando || totales.litros <= 0}>
@@ -447,10 +474,49 @@ const Ruteros = () => {
                 </Button>
               </Card.Footer>
             </Card>
+          ) : null}
+
+          {historial.length > 0 && (
+            <Card className="mt-4">
+              <Card.Header>Semanas anteriores de {rutero?.nombre}</Card.Header>
+              <Table hover responsive className="mb-0 align-middle">
+                <thead>
+                  <tr>
+                    <th>Días</th>
+                    <th>Litros</th>
+                    <th>Total</th>
+                    <th>Pago</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {historial.map((s) => (
+                    <tr key={s.id} className={String(s.id) === String(hoja?.semana?.id) ? 'table-active' : ''}>
+                      <td className="fw-semibold">{s.etiqueta}</td>
+                      <td>{s.total_litros}</td>
+                      <td>{formatearMontoEnMoneda(s.total_pagar, s.moneda)}</td>
+                      <td>
+                        {s.estado_pago === 'pagado' ? (
+                          <Badge bg="success">Pagado</Badge>
+                        ) : s.estado_pago ? (
+                          <Badge bg="warning">Pendiente</Badge>
+                        ) : (
+                          <span className="text-muted small">—</span>
+                        )}
+                      </td>
+                      <td className="text-end">
+                        <Button size="sm" variant="outline-secondary" onClick={() => setSemanaId(s.id)}>
+                          Abrir
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            </Card>
           )}
         </Tab>
 
-        {/* ---------------- Lista de ruteros ---------------- */}
         <Tab eventKey="lista" title="Ruteros registrados">
           <div className="d-flex align-items-center mb-2">
             <Form.Check

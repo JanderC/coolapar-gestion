@@ -1,50 +1,29 @@
+// Mismo orden que getDay() de JavaScript: 0 = domingo.
 export const DIAS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+// Para los desplegables: la semana de trabajo arranca en lunes.
+export const OPCIONES_DIA = [1, 2, 3, 4, 5, 6, 0].map((valor) => ({ valor, nombre: DIAS[valor] }));
 
 export const vacio = (v) => v === undefined || v === null || v === '';
 
-/** 'YYYY-MM-DD' en hora local (evita el corrimiento de un día de toISOString). */
-export const aTexto = (fecha) => {
-  const d = fecha instanceof Date ? fecha : new Date(`${fecha}T00:00:00`);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+export const nombreDia = (n) => DIAS[Number(n)] || '';
+
+/** "Lunes a Miércoles" o "Martes" si es un solo día. */
+export const etiquetaDias = (inicio, fin) => {
+  if (vacio(inicio) || vacio(fin)) return '';
+  return Number(inicio) === Number(fin)
+    ? nombreDia(inicio)
+    : `${nombreDia(inicio)} a ${nombreDia(fin)}`;
 };
 
-export const hoy = () => aTexto(new Date());
-
-export const nombreDia = (fechaTexto) => DIAS[new Date(`${fechaTexto}T00:00:00`).getDay()];
-
-/** Lunes de la semana en que cae la fecha dada. */
-export const lunesDe = (fecha = new Date()) => {
-  const d = fecha instanceof Date ? new Date(fecha) : new Date(`${fecha}T00:00:00`);
-  const diferencia = (d.getDay() + 6) % 7; // 0 = lunes
-  d.setDate(d.getDate() - diferencia);
-  return aTexto(d);
-};
-
-export const sumarDias = (fechaTexto, cantidad) => {
-  const d = new Date(`${fechaTexto}T00:00:00`);
-  d.setDate(d.getDate() + cantidad);
-  return aTexto(d);
-};
-
-export const rangoFechas = (inicio, fin, maximo = 31) => {
-  const dias = [];
-  const cursor = new Date(`${inicio}T00:00:00`);
-  const limite = new Date(`${fin}T00:00:00`);
-  while (cursor <= limite && dias.length < maximo) {
-    dias.push(aTexto(cursor));
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return dias;
-};
+/** Cuántos días abarca el ciclo: lunes a miércoles = 3. */
+export const largoCiclo = (inicio, fin) => ((Number(fin) - Number(inicio) + 7) % 7) + 1;
 
 export const formatoCorto = (fechaTexto) => {
   if (!fechaTexto) return '';
   const [a, m, d] = String(fechaTexto).slice(0, 10).split('-');
   return `${d}/${m}/${a}`;
 };
-
-export const etiquetaSemana = (semana) =>
-  semana ? `${formatoCorto(semana.fecha_inicio)} al ${formatoCorto(semana.fecha_fin)}` : '';
 
 /** Desempaqueta { success, data } venga o no envuelto por la instancia de axios. */
 export const desempacar = (respuesta) => respuesta?.data?.data ?? respuesta?.data ?? null;
