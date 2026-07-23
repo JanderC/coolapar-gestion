@@ -4,7 +4,7 @@ import * as registroApi from '../../api/registroLeche.api';
 import * as productoresApi from '../../api/productores.api';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { useMoneda } from '../../context/MonedaContext';
-import { OPCIONES_DIA, aNumero, desempacar, etiquetaDias, formatoCorto, largoCiclo, vacio } from '../../utils/fechas';
+import { OPCIONES_DIA, aNumero, desempacar, diaSemanaDeFecha, formatoCorto, hoy, largoCiclo, nombreDia, vacio } from '../../utils/fechas';
 
 const OPCIONES_MONEDA = [
   { codigo: 'BS', etiqueta: 'Bs. — Bolívares' },
@@ -36,8 +36,10 @@ const RegistroLeche = () => {
   const [productores, setProductores] = useState([]);
   const [productorId, setProductorId] = useState('');
 
-  // La semana se define por días, no por fechas.
-  const [diaInicio, setDiaInicio] = useState(1); // lunes
+  // El cliente elige la fecha exacta en que arranca la semana; el día que
+  // le corresponde (lunes, martes...) se calcula solo. "Termina" sigue
+  // siendo por nombre de día.
+  const [fechaInicio, setFechaInicio] = useState(hoy());
   const [diaFin, setDiaFin] = useState(0); // domingo
   const [semanaId, setSemanaId] = useState(null); // solo al reabrir una del historial
 
@@ -83,15 +85,15 @@ const RegistroLeche = () => {
     try {
       const params = semanaId
         ? { productor_id: productorId, semana_id: semanaId }
-        : { productor_id: productorId, dia_inicio: diaInicio, dia_fin: diaFin };
+        : { productor_id: productorId, fecha_inicio: fechaInicio, dia_fin: diaFin };
 
       const datos = desempacar(await registroApi.obtenerHoja(params));
       setHoja(datos);
       setDias(datos.dias.map((d) => ({ ...d, litros: d.litros === null ? '' : String(d.litros) })));
       setPrecioLitro(datos.precio_litro ? String(datos.precio_litro) : '');
       setMoneda(datos.moneda || 'BS');
-      if (semanaId) {
-        setDiaInicio(datos.semana.dia_inicio);
+      if (semanaId && datos.dias.length > 0) {
+        setFechaInicio(datos.dias[0].fecha);
         setDiaFin(datos.semana.dia_fin);
       }
     } catch (err) {
@@ -99,7 +101,7 @@ const RegistroLeche = () => {
     } finally {
       setCargandoHoja(false);
     }
-  }, [productorId, diaInicio, diaFin, semanaId]);
+  }, [productorId, fechaInicio, diaFin, semanaId]);
 
   useEffect(() => {
     cargarHoja();
@@ -138,10 +140,14 @@ const RegistroLeche = () => {
     }
   };
 
-  const cambiarDia = (cual, valor) => {
+  const cambiarFechaInicio = (valor) => {
     setSemanaId(null);
-    if (cual === 'inicio') setDiaInicio(Number(valor));
-    else setDiaFin(Number(valor));
+    setFechaInicio(valor);
+  };
+
+  const cambiarDiaFin = (valor) => {
+    setSemanaId(null);
+    setDiaFin(Number(valor));
   };
 
   const cuerpoHoja = () => ({
@@ -245,27 +251,26 @@ const RegistroLeche = () => {
             </Form.Select>
           </div>
 
-          <div style={{ minWidth: 150 }}>
-            <Form.Label className="small text-muted mb-1">Inicia</Form.Label>
-            <Form.Select value={diaInicio} onChange={(e) => cambiarDia('inicio', e.target.value)}>
-              {OPCIONES_DIA.map((d) => (
-                <option key={d.valor} value={d.valor}>
-                  {d.nombre}
-                </option>
-              ))}
-            </Form.Select>
+          <div style={{ minWidth: 190 }}>
+            <Form.Label className="small text-muted mb-1">Fecha de inicio</Form.Label>
+            <Form.Control
+              type="date"
+              value={fechaInicio}
+              onChange={(e) => cambiarFechaInicio(e.target.value)}
+            />
+            <Form.Text className="text-muted">{nombreDia(diaSemanaDeFecha(fechaInicio))}</Form.Text>
           </div>
 
           <div style={{ minWidth: 150 }}>
             <Form.Label className="small text-muted mb-1">Termina</Form.Label>
-            <Form.Select value={diaFin} onChange={(e) => cambiarDia('fin', e.target.value)}>
+            <Form.Select value={diaFin} onChange={(e) => cambiarDiaFin(e.target.value)}>
               {OPCIONES_DIA.map((d) => (
                 <option key={d.valor} value={d.valor}>
                   {d.nombre}
                 </option>
               ))}
             </Form.Select>
-            <Form.Text className="text-muted">{largoCiclo(diaInicio, diaFin)} día(s)</Form.Text>
+            <Form.Text className="text-muted">{largoCiclo(diaSemanaDeFecha(fechaInicio), diaFin)} día(s)</Form.Text>
           </div>
 
           <div style={{ minWidth: 300 }}>
@@ -303,7 +308,9 @@ const RegistroLeche = () => {
             <div className="d-flex align-items-center gap-2">
               <Punto color={productor?.color_identificativo} />
               <strong>{productor?.nombre}</strong>
-              <span className="text-muted small">{etiquetaDias(diaInicio, diaFin)}</span>
+              <span className="text-muted small">
+                {formatoCorto(fechaInicio)} a {formatoCorto(dias[dias.length - 1]?.fecha)}
+              </span>
             </div>
             <div className="d-flex align-items-center gap-2">
               {hoja.pago && (

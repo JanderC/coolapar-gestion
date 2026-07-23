@@ -8,6 +8,15 @@ export const vacio = (v) => v === undefined || v === null || v === '';
 
 export const nombreDia = (n) => DIAS[Number(n)] || '';
 
+/** 'YYYY-MM-DD' de hoy, en hora local. */
+export const hoy = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+/** Día de la semana (0=domingo) de una fecha 'YYYY-MM-DD'. */
+export const diaSemanaDeFecha = (fechaTexto) => new Date(`${fechaTexto}T00:00:00`).getDay();
+
 /** "Lunes a Miércoles" o "Martes" si es un solo día. */
 export const etiquetaDias = (inicio, fin) => {
   if (vacio(inicio) || vacio(fin)) return '';
