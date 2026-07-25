@@ -10,8 +10,8 @@ export const guardarHoja = (data) => axiosClient.post(`${BASE}/hoja`, data).then
 
 export const registrarPagoSemana = (data) => axiosClient.post(`${BASE}/hoja/pago`, data).then((r) => r.data);
 
-export const historialProductor = (productor_id) =>
-  axiosClient.get(`${BASE}/historial`, { params: { productor_id } }).then((r) => r.data);
+export const historialProductor = (productor_id, pagina = 1, por_pagina = 10) =>
+  axiosClient.get(`${BASE}/historial`, { params: { productor_id, pagina, por_pagina } }).then((r) => r.data);
 
 export const cambiarEstadoSemana = (id, estado) =>
   axiosClient.patch(`${BASE}/semanas/${id}/estado`, { estado }).then((r) => r.data);

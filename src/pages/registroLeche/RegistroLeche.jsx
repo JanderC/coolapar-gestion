@@ -60,6 +60,9 @@ const RegistroLeche = () => {
   const [guardando, setGuardando] = useState(false);
 
   const [historial, setHistorial] = useState([]);
+  const [paginaHistorial, setPaginaHistorial] = useState(1);
+  const [paginacionHistorial, setPaginacionHistorial] = useState({ total: 0, total_paginas: 1 });
+  const [cargandoHistorial, setCargandoHistorial] = useState(false);
 
   const productor = useMemo(
     () => productores.find((p) => String(p.id) === String(productorId)) || null,
@@ -126,17 +129,32 @@ const RegistroLeche = () => {
   }, [cargarHoja]);
 
   const cargarHistorial = useCallback(async () => {
-    if (!productorId) return setHistorial([]);
+    if (!productorId) {
+      setHistorial([]);
+      setPaginacionHistorial({ total: 0, total_paginas: 1 });
+      return;
+    }
+    setCargandoHistorial(true);
     try {
-      setHistorial(desempacar(await registroApi.historialProductor(productorId)) || []);
+      const datos = desempacar(await registroApi.historialProductor(productorId, paginaHistorial, 10));
+      setHistorial(datos?.semanas || []);
+      setPaginacionHistorial(datos?.paginacion || { total: 0, total_paginas: 1 });
     } catch {
       setHistorial([]);
+      setPaginacionHistorial({ total: 0, total_paginas: 1 });
+    } finally {
+      setCargandoHistorial(false);
     }
-  }, [productorId]);
+  }, [productorId, paginaHistorial]);
 
   useEffect(() => {
     cargarHistorial();
   }, [cargarHistorial]);
+
+  // Al cambiar de productor, siempre se vuelve a la primera página.
+  useEffect(() => {
+    setPaginaHistorial(1);
+  }, [productorId]);
 
   const totales = useMemo(() => {
     const litros = dias.reduce((s, d) => s + aNumero(d.litros, 0), 0);
@@ -728,49 +746,100 @@ const RegistroLeche = () => {
         </Card>
       ) : null}
 
-      {historial.length > 0 && (
+      {(historial.length > 0 || cargandoHistorial || paginacionHistorial.total > 0) && (
         <Card className="mt-4">
-          <Card.Header>Semanas anteriores de {productor?.nombre}</Card.Header>
-          <Table hover responsive className="mb-0 align-middle">
-            <thead>
-              <tr>
-                <th>Días</th>
-                <th>Con leche</th>
-                <th>Litros</th>
-                <th>Ácidos</th>
-                <th>Bajo en grasa</th>
-                <th>Total</th>
-                <th>Pago</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {historial.map((s) => (
-                <tr key={s.id} className={String(s.id) === String(hoja?.semana?.id) ? 'table-active' : ''}>
-                  <td className="fw-semibold">{s.etiqueta}</td>
-                  <td>{s.dias_con_leche}</td>
-                  <td>{s.total_litros}</td>
-                  <td>{s.total_litros_acidos > 0 ? s.total_litros_acidos : '—'}</td>
-                  <td>{s.total_litros_bajo_grasa > 0 ? s.total_litros_bajo_grasa : '—'}</td>
-                  <td>{formatearMontoEnMoneda(s.total_pagar, s.moneda)}</td>
-                  <td>
-                    {s.estado_pago === 'pagado' ? (
-                      <Badge bg="success">Pagado</Badge>
-                    ) : s.estado_pago ? (
-                      <Badge bg="warning">Pendiente</Badge>
-                    ) : (
-                      <span className="text-muted small">—</span>
-                    )}
-                  </td>
-                  <td className="text-end">
-                    <Button size="sm" variant="outline-secondary" onClick={() => setSemanaId(s.id)}>
-                      Abrir
-                    </Button>
-                  </td>
+          <Card.Header className="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <span>Semanas anteriores de {productor?.nombre}</span>
+            {paginacionHistorial.total > 0 && (
+              <span className="text-muted small">{paginacionHistorial.total} semana(s) guardadas</span>
+            )}
+          </Card.Header>
+
+          {cargandoHistorial ? (
+            <div className="p-3">
+              <LoadingSpinner mensaje="Cargando semanas anteriores..." />
+            </div>
+          ) : (
+            <Table hover responsive className="mb-0 align-middle">
+              <thead>
+                <tr>
+                  <th>Fecha inicio</th>
+                  <th>Fecha fin</th>
+                  <th>Con leche</th>
+                  <th>Litros</th>
+                  <th>Ácidos</th>
+                  <th>Bajo en grasa</th>
+                  <th>Total</th>
+                  <th>Pago</th>
+                  <th></th>
                 </tr>
-              ))}
-            </tbody>
-          </Table>
+              </thead>
+              <tbody>
+                {historial.map((s) => (
+                  <tr key={s.id} className={String(s.id) === String(hoja?.semana?.id) ? 'table-active' : ''}>
+                    <td className="fw-semibold">
+                      {nombreDia(s.dia_inicio)}
+                      <div className="text-muted fw-normal small">{formatoCorto(s.fecha_inicio)}</div>
+                    </td>
+                    <td className="fw-semibold">
+                      {nombreDia(s.dia_fin)}
+                      <div className="text-muted fw-normal small">{formatoCorto(s.fecha_fin)}</div>
+                    </td>
+                    <td>{s.dias_con_leche}</td>
+                    <td>{s.total_litros}</td>
+                    <td>{s.total_litros_acidos > 0 ? s.total_litros_acidos : '—'}</td>
+                    <td>{s.total_litros_bajo_grasa > 0 ? s.total_litros_bajo_grasa : '—'}</td>
+                    <td>{formatearMontoEnMoneda(s.total_pagar, s.moneda)}</td>
+                    <td>
+                      {s.estado_pago === 'pagado' ? (
+                        <Badge bg="success">Pagado</Badge>
+                      ) : s.estado_pago ? (
+                        <Badge bg="warning">Pendiente</Badge>
+                      ) : (
+                        <span className="text-muted small">—</span>
+                      )}
+                    </td>
+                    <td className="text-end">
+                      <Button size="sm" variant="outline-secondary" onClick={() => setSemanaId(s.id)}>
+                        Abrir
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+                {historial.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="text-center text-muted py-3">
+                      Sin semanas guardadas.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </Table>
+          )}
+
+          {paginacionHistorial.total_paginas > 1 && (
+            <Card.Footer className="d-flex justify-content-between align-items-center">
+              <Button
+                size="sm"
+                variant="outline-secondary"
+                disabled={paginaHistorial <= 1}
+                onClick={() => setPaginaHistorial((p) => Math.max(1, p - 1))}
+              >
+                ← Anterior
+              </Button>
+              <span className="text-muted small">
+                Página {paginaHistorial} de {paginacionHistorial.total_paginas}
+              </span>
+              <Button
+                size="sm"
+                variant="outline-secondary"
+                disabled={paginaHistorial >= paginacionHistorial.total_paginas}
+                onClick={() => setPaginaHistorial((p) => Math.min(paginacionHistorial.total_paginas, p + 1))}
+              >
+                Siguiente →
+              </Button>
+            </Card.Footer>
+          )}
         </Card>
       )}
 
