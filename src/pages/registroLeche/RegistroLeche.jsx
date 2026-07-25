@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Table, Button, Form, Alert, Badge, InputGroup, Card, Modal } from 'react-bootstrap';
 import * as registroApi from '../../api/registroLeche.api';
 import * as productoresApi from '../../api/productores.api';
@@ -86,12 +86,18 @@ const RegistroLeche = () => {
     cargarProductores();
   }, []);
 
+  // Evita que una respuesta vieja (por ejemplo si el usuario cambió la
+  // fecha varias veces seguido) llegue tarde y pise el estado con datos
+  // que ya no corresponden a lo que está viendo en pantalla.
+  const secuenciaHoja = useRef(0);
+
   const cargarHoja = useCallback(async () => {
     if (!productorId) {
       setHoja(null);
       setDias([]);
       return;
     }
+    const miTurno = ++secuenciaHoja.current;
     setCargandoHoja(true);
     setError('');
     try {
@@ -100,6 +106,8 @@ const RegistroLeche = () => {
         : { productor_id: productorId, fecha_inicio: fechaInicio, dia_fin: diaFin };
 
       const datos = desempacar(await registroApi.obtenerHoja(params));
+      if (miTurno !== secuenciaHoja.current) return; // llegó tarde, se descarta
+
       setHoja(datos);
       setDias(
         datos.dias.map((d) => ({
@@ -118,9 +126,10 @@ const RegistroLeche = () => {
         setDiaFin(datos.semana.dia_fin);
       }
     } catch (err) {
+      if (miTurno !== secuenciaHoja.current) return;
       setError(err.response?.data?.message || 'No se pudo abrir la semana.');
     } finally {
-      setCargandoHoja(false);
+      if (miTurno === secuenciaHoja.current) setCargandoHoja(false);
     }
   }, [productorId, fechaInicio, diaFin, semanaId]);
 
@@ -163,6 +172,9 @@ const RegistroLeche = () => {
     const precio = aNumero(precioLitro, 0);
     const precioAc = aNumero(precioAcida, 0);
     const precioBg = aNumero(precioBajoGrasa, 0);
+    const subtotalNormal = Math.round(litros * precio * 100) / 100;
+    const subtotalAcida = Math.round(litrosAcidos * precioAc * 100) / 100;
+    const subtotalBajoGrasa = Math.round(litrosBajoGrasa * precioBg * 100) / 100;
     return {
       dias: dias.filter(
         (d) => aNumero(d.litros, 0) > 0 || aNumero(d.litros_acidos, 0) > 0 || aNumero(d.litros_bajo_grasa, 0) > 0
@@ -170,7 +182,10 @@ const RegistroLeche = () => {
       litros: Math.round(litros * 100) / 100,
       litrosAcidos: Math.round(litrosAcidos * 100) / 100,
       litrosBajoGrasa: Math.round(litrosBajoGrasa * 100) / 100,
-      pagar: Math.round((litros * precio + litrosAcidos * precioAc + litrosBajoGrasa * precioBg) * 100) / 100,
+      subtotalNormal,
+      subtotalAcida,
+      subtotalBajoGrasa,
+      pagar: Math.round((subtotalNormal + subtotalAcida + subtotalBajoGrasa) * 100) / 100,
     };
   }, [dias, precioLitro, precioAcida, precioBajoGrasa]);
 
@@ -200,9 +215,16 @@ const RegistroLeche = () => {
     setDias((prev) => prev.map((x) => (x.fecha === fecha ? { ...x, [campo]: valor } : x)));
   };
 
+  // Importante: NO se manda hoja.semana.id aquí. Ese id puede ser el de
+  // una semana ya guardada que solo se está previsualizando con un nuevo
+  // día de cierre (todavía sin confirmar). Si se fijara ese id, el cambio
+  // de "Termina" nunca se guardaría. Solo se fija semana_id cuando el
+  // usuario reabrió explícitamente una semana del historial (semanaId).
+  // En cualquier otro caso se manda fecha_inicio + dia_fin y el backend
+  // decide si crea una semana nueva o actualiza la que ya existía.
   const cuerpoHoja = () => ({
     productor_id: Number(productorId),
-    semana_id: hoja.semana.id,
+    ...(semanaId ? { semana_id: Number(semanaId) } : { fecha_inicio: fechaInicio, dia_fin: diaFin }),
     precio_litro: aNumero(precioLitro, 0),
     precio_litro_acida: aNumero(precioAcida, 0),
     precio_litro_bajo_grasa: aNumero(precioBajoGrasa, 0),
@@ -271,10 +293,13 @@ const RegistroLeche = () => {
     setGuardando(true);
     setError('');
     try {
-      await registroApi.guardarHoja(cuerpoHoja());
+      // Se guarda primero y se usa el id que devuelve el servidor: si la
+      // semana era nueva, "hoja.semana.id" todavía estaba en null en este
+      // momento, y mandarlo así hacía que el pago fallara en silencio.
+      const guardado = desempacar(await registroApi.guardarHoja(cuerpoHoja()));
       await registroApi.registrarPagoSemana({
         productor_id: Number(productorId),
-        semana_id: hoja.semana.id,
+        semana_id: guardado.semana.id,
         marcar_pagado: true,
       });
       setAviso('Pago registrado.');
@@ -376,6 +401,12 @@ const RegistroLeche = () => {
         </tr>
       </tfoot>
     </table>
+    <div class="subtotales">
+      <div>Subtotal normal: <strong>${formatearMontoEnMoneda(datosHoja.totales.total_pagar_normal || 0, monedaHoja)}</strong></div>
+      ${datosHoja.totales.total_litros_acidos > 0 ? `<div>Subtotal ácida: <strong>${formatearMontoEnMoneda(datosHoja.totales.total_pagar_acida || 0, monedaHoja)}</strong></div>` : ''}
+      ${datosHoja.totales.total_litros_bajo_grasa > 0 ? `<div>Subtotal bajo en grasa: <strong>${formatearMontoEnMoneda(datosHoja.totales.total_pagar_bajo_grasa || 0, monedaHoja)}</strong></div>` : ''}
+      <div>Total a pagar: <strong>${formatearMontoEnMoneda(datosHoja.totales.total_pagar, monedaHoja)}</strong></div>
+    </div>
     <div class="firmas">
       <div>Firma del productor</div>
       <div>Firma COOLAPAR</div>
@@ -409,6 +440,7 @@ const RegistroLeche = () => {
   thead th { background: #f1f3f5; }
   td.num, th.num { text-align: right; }
   tfoot th { background: #f1f3f5; }
+  .subtotales { display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: 12px; margin-top: 10px; padding-top: 8px; border-top: 1px solid #dee2e6; }
   .firmas { display: flex; justify-content: space-between; margin-top: 28px; font-size: 12px; }
   .firmas div { width: 45%; text-align: center; border-top: 1px solid #212529; padding-top: 5px; }
   .pie { margin-top: 12px; font-size: 11px; color: #6c757d; text-align: right; }
@@ -629,6 +661,9 @@ const RegistroLeche = () => {
               </span>
             </div>
             <div className="d-flex align-items-center gap-2">
+              {!hoja.semana.guardada && (
+                <Badge bg="secondary">Sin guardar todavía</Badge>
+              )}
               {hoja.pago && (
                 <Badge bg={hoja.pago.estado_pago === 'pagado' ? 'success' : 'warning'}>
                   {hoja.pago.estado_pago === 'pagado'
@@ -636,13 +671,15 @@ const RegistroLeche = () => {
                     : 'Pago pendiente'}
                 </Badge>
               )}
-              <Button
-                size="sm"
-                variant="outline-secondary"
-                onClick={() => cambiarEstadoSemana(cerrada ? 'abierta' : 'cerrada')}
-              >
-                {cerrada ? 'Reabrir semana' : 'Cerrar semana'}
-              </Button>
+              {hoja.semana.guardada && (
+                <Button
+                  size="sm"
+                  variant="outline-secondary"
+                  onClick={() => cambiarEstadoSemana(cerrada ? 'abierta' : 'cerrada')}
+                >
+                  {cerrada ? 'Reabrir semana' : 'Cerrar semana'}
+                </Button>
+              )}
             </div>
           </Card.Header>
 
@@ -728,17 +765,48 @@ const RegistroLeche = () => {
             </tfoot>
           </Table>
 
+          <div className="px-3 py-2 border-top bg-light d-flex flex-wrap gap-4 small">
+            <div>
+              <span className="text-muted">Subtotal normal: </span>
+              <strong>{formatearMontoEnMoneda(totales.subtotalNormal, moneda)}</strong>
+            </div>
+            {totales.litrosAcidos > 0 && (
+              <div>
+                <span className="text-muted">Subtotal ácida: </span>
+                <strong>{formatearMontoEnMoneda(totales.subtotalAcida, moneda)}</strong>
+              </div>
+            )}
+            {totales.litrosBajoGrasa > 0 && (
+              <div>
+                <span className="text-muted">Subtotal bajo en grasa: </span>
+                <strong>{formatearMontoEnMoneda(totales.subtotalBajoGrasa, moneda)}</strong>
+              </div>
+            )}
+            <div className="ms-auto">
+              <span className="text-muted">Total a pagar: </span>
+              <strong>{formatearMontoEnMoneda(totales.pagar, moneda)}</strong>
+            </div>
+          </div>
+
           <Card.Footer className="d-flex justify-content-end gap-2 flex-wrap">
             <Button variant="outline-secondary" onClick={abrirModalImprimir}>
               Imprimir
             </Button>
-            <Button variant="outline-success" onClick={guardarSemana} disabled={guardando || cerrada}>
+            <Button
+              variant="outline-success"
+              onClick={guardarSemana}
+              disabled={guardando || cargandoHoja || cerrada}
+            >
               {guardando ? 'Guardando...' : 'Guardar semana'}
             </Button>
             <Button
               variant="success"
               onClick={registrarPago}
-              disabled={guardando || (totales.litros <= 0 && totales.litrosAcidos <= 0)}
+              disabled={
+                guardando ||
+                cargandoHoja ||
+                (totales.litros <= 0 && totales.litrosAcidos <= 0 && totales.litrosBajoGrasa <= 0)
+              }
             >
               Registrar pago
             </Button>
