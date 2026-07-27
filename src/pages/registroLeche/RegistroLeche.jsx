@@ -465,7 +465,10 @@ const RegistroLeche = () => {
       await registroApi.eliminarSemana(semana.id);
       setAviso(`Semana del ${rango} eliminada.`);
     } catch (err) {
-      if (err.response?.status === 409) {
+      const cuerpo = err.response?.data;
+      // 409 con "compartida": la semana la usa otro módulo (ruteros,
+      // insumos). No se puede forzar; solo se informa.
+      if (err.response?.status === 409 && cuerpo?.data?.requiere_confirmacion) {
         if (!window.confirm('Esa semana ya tiene un pago registrado. ¿Eliminarla junto con el pago?')) return;
         try {
           await registroApi.eliminarSemana(semana.id, true);
@@ -474,7 +477,7 @@ const RegistroLeche = () => {
           return setError(err2.response?.data?.message || 'No se pudo eliminar la semana.');
         }
       } else {
-        return setError(err.response?.data?.message || 'No se pudo eliminar la semana.');
+        return setError(cuerpo?.message || 'No se pudo eliminar la semana.');
       }
     }
 
