@@ -282,7 +282,7 @@ const Ruteros = () => {
 
   return (
     <div>
-      <div className="d-flex justify-content-between align-items-start mb-3 gap-3 flex-wrap">
+      <div className="page-header d-flex justify-content-between align-items-start mb-3 gap-3 flex-wrap">
         <div>
           <h4 className="mb-1">Ruteros</h4>
           <p className="text-muted mb-0">
@@ -291,7 +291,7 @@ const Ruteros = () => {
           </p>
         </div>
         <Button variant="success" onClick={abrirNuevo}>
-          + Nuevo rutero
+          <span className="btn-icon-plus">+</span>Nuevo rutero
         </Button>
       </div>
 

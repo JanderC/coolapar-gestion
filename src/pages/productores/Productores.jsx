@@ -324,7 +324,7 @@ const Productores = () => {
 
   return (
     <div>
-      <div className="d-flex justify-content-between align-items-start mb-3 gap-3 flex-wrap">
+      <div className="page-header d-flex justify-content-between align-items-start mb-3 gap-3 flex-wrap">
         <div>
           <h4 className="mb-1">Productores</h4>
           <p className="text-muted mb-0">
@@ -333,7 +333,7 @@ const Productores = () => {
           </p>
         </div>
         <Button variant="success" onClick={abrirNuevo}>
-          + Nuevo productor
+          <span className="btn-icon-plus">+</span>Nuevo productor
         </Button>
       </div>
 
@@ -349,7 +349,7 @@ const Productores = () => {
       )}
 
       {niveles.length > 0 && (
-        <div className="bg-white border rounded p-3 mb-3">
+        <div className="niveles-precio-panel mb-3">
           <div className="d-flex justify-content-between align-items-center mb-2">
             <div className="text-muted small">Niveles de precio</div>
             {desincronizados.length > 0 && (

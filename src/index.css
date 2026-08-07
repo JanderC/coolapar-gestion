@@ -4,10 +4,254 @@
   --sidebar-bg: #2f5233;
   --sidebar-bg-hover: #4f7942;
   --sidebar-accent: #ffd166;
+
+  /* Paleta de marca, reutilizada en cards/tablas/botones de los módulos */
+  --brand-green-dark: #2f5233;
+  --brand-green: #3c6b40;
+  --brand-green-light: #4f7942;
+  --brand-green-soft: #eef4ec;
+  --brand-accent: #ffd166;
+  --brand-border: #e5e9e4;
+  --brand-text-muted: #5b6b5c;
 }
 
 body {
   background-color: #f5f7f5;
+}
+
+/* ===== Encabezado de página (título + descripción + acción principal) ===== */
+.page-header {
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--brand-border);
+}
+
+.page-header h4 {
+  color: var(--brand-green-dark);
+  font-weight: 700;
+}
+
+.page-header p {
+  max-width: 62ch;
+}
+
+/* Bolita "+" dentro de los botones de "Nuevo ..." */
+.btn-icon-plus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.28);
+  margin-right: 6px;
+  font-weight: 700;
+  line-height: 1;
+  transform: translateY(-1px);
+}
+
+/* ===== Cards ===== */
+.card {
+  border: 1px solid var(--brand-border);
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(20, 40, 20, 0.05);
+}
+
+.card-header {
+  background-color: #fbfcfb;
+  border-bottom: 1px solid var(--brand-border);
+  font-weight: 600;
+  color: #33402f;
+}
+
+.card-header:first-child {
+  border-radius: 13px 13px 0 0;
+}
+
+.card-footer {
+  background-color: #fbfcfb;
+  border-top: 1px solid var(--brand-border);
+}
+
+.card-footer:last-child {
+  border-radius: 0 0 13px 13px;
+}
+
+.niveles-precio-panel {
+  background-color: #ffffff;
+  border: 1px solid var(--brand-border);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  box-shadow: 0 1px 2px rgba(20, 40, 20, 0.04);
+}
+
+.totales-bar {
+  background-color: var(--brand-green-soft) !important;
+  border-top: 1px solid var(--brand-border) !important;
+}
+
+/* ===== Tablas ===== */
+.table thead th {
+  background-color: #f3f6f2;
+  color: #3c4a3d;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+  border-bottom: 2px solid var(--brand-border);
+  white-space: nowrap;
+}
+
+.table tbody tr:hover {
+  background-color: #f7faf6;
+}
+
+.table td,
+.table th {
+  vertical-align: middle;
+}
+
+.table td.text-center.text-muted {
+  padding-top: 2.25rem;
+  padding-bottom: 2.25rem;
+}
+
+.table tfoot th {
+  border-top: 2px solid var(--brand-border);
+}
+
+/* ===== Botones ===== */
+.btn {
+  border-radius: 8px;
+  font-weight: 500;
+}
+
+.btn-success {
+  background-color: var(--brand-green);
+  border-color: var(--brand-green);
+}
+
+.btn-success:hover,
+.btn-success:focus {
+  background-color: var(--brand-green-dark);
+  border-color: var(--brand-green-dark);
+}
+
+.btn-outline-success {
+  color: var(--brand-green);
+  border-color: var(--brand-green);
+}
+
+.btn-outline-success:hover {
+  background-color: var(--brand-green);
+  border-color: var(--brand-green);
+}
+
+/* ===== Badges ===== */
+.badge {
+  font-weight: 600;
+  padding: 0.42em 0.65em;
+  border-radius: 6px;
+}
+
+/* ===== Formularios ===== */
+.form-label {
+  font-weight: 600;
+  color: #445245;
+  font-size: 0.85rem;
+}
+
+.form-control:focus,
+.form-select:focus {
+  border-color: #8fb28f;
+  box-shadow: 0 0 0 0.2rem rgba(60, 107, 64, 0.15);
+}
+
+.form-check-input:checked {
+  background-color: var(--brand-green);
+  border-color: var(--brand-green);
+}
+
+.form-check-input:focus {
+  box-shadow: 0 0 0 0.2rem rgba(60, 107, 64, 0.15);
+}
+
+.input-group-text {
+  background-color: #f3f6f2;
+  border-color: #ced9cd;
+  color: #445245;
+  font-weight: 600;
+}
+
+/* ===== Pestañas (Ruteros) ===== */
+.nav-tabs {
+  border-bottom: 2px solid var(--brand-border);
+}
+
+.nav-tabs .nav-link {
+  border: none;
+  color: var(--brand-text-muted);
+  font-weight: 600;
+  padding: 0.6rem 1.1rem;
+}
+
+.nav-tabs .nav-link:hover {
+  border: none;
+  color: var(--brand-green-dark);
+}
+
+.nav-tabs .nav-link.active {
+  color: var(--brand-green-dark);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid var(--brand-green-dark);
+}
+
+/* ===== Alertas ===== */
+.alert {
+  border-radius: 10px;
+  border: none;
+}
+
+.alert-danger {
+  background-color: #fdecea;
+  color: #7a2320;
+}
+
+.alert-success {
+  background-color: #e9f5ea;
+  color: #1f4a24;
+}
+
+.alert-info {
+  background-color: #e8f1fb;
+  color: #1c3f61;
+}
+
+.alert-warning {
+  background-color: #fff6e0;
+  color: #6b4c00;
+}
+
+.alert-light {
+  background-color: #f5f7f5;
+}
+
+/* ===== Modales y menús desplegables ===== */
+.modal-content {
+  border-radius: 14px;
+  border: none;
+  box-shadow: 0 12px 40px rgba(20, 40, 20, 0.18);
+}
+
+.modal-header,
+.modal-footer {
+  border-color: var(--brand-border);
+}
+
+.dropdown-menu {
+  border-radius: 10px;
+  border: 1px solid var(--brand-border);
+  box-shadow: 0 8px 24px rgba(20, 40, 20, 0.12);
 }
 
 /* ===== Estructura general del layout ===== */

@@ -782,7 +782,7 @@ const RegistroLeche = () => {
 
   return (
     <div>
-      <div className="mb-3">
+      <div className="page-header mb-3">
         <h4 className="mb-1">Registro diario de leche</h4>
         <p className="text-muted mb-0">
           Elija el productor y en qué días corre su semana. Cargue los litros buenos y, si trajo, los litros ácidos
@@ -1039,7 +1039,7 @@ const RegistroLeche = () => {
             </tfoot>
           </Table>
 
-          <div className="px-3 py-2 border-top bg-light d-flex flex-wrap gap-4 small">
+          <div className="totales-bar px-3 py-2 d-flex flex-wrap gap-4 small">
             <div>
               <span className="text-muted">Subtotal normal: </span>
               <strong>{formatearMontoEnMoneda(totales.subtotalNormal, moneda)}</strong>
