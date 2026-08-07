@@ -1,27 +1,147 @@
+:root {
+  --sidebar-width: 240px;
+  --sidebar-width-colapsado: 76px;
+  --sidebar-bg: #2f5233;
+  --sidebar-bg-hover: #4f7942;
+  --sidebar-accent: #ffd166;
+}
+
 body {
   background-color: #f5f7f5;
 }
 
-.sidebar {
+/* ===== Estructura general del layout ===== */
+.app-shell {
   min-height: 100vh;
-  background-color: #2f5233;
+  align-items: stretch;
 }
 
-.sidebar .nav-link {
+.app-sidebar {
+  flex: 0 0 var(--sidebar-width);
+  width: var(--sidebar-width);
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
+  overflow: hidden;
+  transition: width 0.2s ease, flex-basis 0.2s ease;
+}
+
+.app-sidebar--colapsado {
+  flex-basis: var(--sidebar-width-colapsado);
+  width: var(--sidebar-width-colapsado);
+}
+
+.app-content {
+  min-width: 0; /* evita que el contenido empuje el ancho del sidebar en pantallas angostas */
+}
+
+/* ===== Sidebar ===== */
+.sidebar {
+  background-color: var(--sidebar-bg);
+  overflow-x: hidden;
+}
+
+.sidebar-header {
+  min-height: 60px;
+  padding: 0 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  margin-bottom: 0.75rem;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.sidebar-brand-icon {
+  font-size: 1.25rem;
+  margin-right: 0.6rem;
+  flex-shrink: 0;
+}
+
+.sidebar-nav {
+  padding: 0 0.5rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.sidebar .nav-link,
+.sidebar-link {
   color: #e8f0e3;
   padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  white-space: nowrap;
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .sidebar .nav-link:hover,
 .sidebar .nav-link.active {
-  background-color: #4f7942;
+  background-color: var(--sidebar-bg-hover);
   color: #ffffff;
-  border-radius: 6px;
 }
 
-/* Panel deslizante del menu en mobile */
+.sidebar .nav-link.active {
+  font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--sidebar-accent);
+}
+
+.sidebar-link-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.sidebar-link-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Botón para contraer/expandir (solo desktop) */
+.sidebar-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  background-color: rgba(255, 255, 255, 0.06);
+  color: #e8f0e3;
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.sidebar-toggle:hover {
+  background-color: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+}
+
+/* ===== Estado contraído: solo íconos, centrados, con tooltip ===== */
+.sidebar--colapsado .sidebar-header {
+  justify-content: center;
+  padding: 0;
+}
+
+.sidebar--colapsado .sidebar-brand-icon {
+  margin-right: 0;
+}
+
+.sidebar--colapsado .sidebar-brand-text,
+.sidebar--colapsado .sidebar-link-text,
+.sidebar--colapsado .sidebar-toggle-text {
+  display: none;
+}
+
+.sidebar--colapsado .sidebar-link {
+  justify-content: center;
+}
+
+.sidebar--colapsado .sidebar-toggle {
+  justify-content: center;
+}
+
+/* ===== Panel deslizante del menú en mobile ===== */
 .sidebar-offcanvas {
-  background-color: #2f5233;
+  background-color: var(--sidebar-bg);
   max-width: 280px;
 }
 
@@ -30,14 +150,7 @@ body {
 }
 
 .sidebar-offcanvas .sidebar {
-  min-height: auto;
-}
-
-/* Evita que el contenido quede detras del navbar sticky al abrir el menu */
-@media (max-width: 767.98px) {
-  .sidebar {
-    min-height: auto;
-  }
+  height: auto;
 }
 
 .badge-color-dot {

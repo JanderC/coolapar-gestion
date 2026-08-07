@@ -1,24 +1,41 @@
-import React, { useState } from 'react';
-import { Row, Col, Offcanvas } from 'react-bootstrap';
+import React, { useState, useEffect } from 'react';
+import { Offcanvas } from 'react-bootstrap';
 import Sidebar from './Sidebar';
 import Navbar from './Navbar';
 
+const CLAVE_COLAPSADO = 'coolapar_sidebar_colapsado';
+
 const Layout = ({ children }) => {
   const [mostrarMenu, setMostrarMenu] = useState(false);
+  const [colapsado, setColapsado] = useState(() => {
+    try {
+      return localStorage.getItem(CLAVE_COLAPSADO) === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CLAVE_COLAPSADO, colapsado ? '1' : '0');
+    } catch {
+      // localStorage no disponible (modo privado, etc.); se ignora sin romper la app
+    }
+  }, [colapsado]);
 
   return (
     <>
-      <Row className="g-0">
-        {/* Sidebar fijo, solo visible en pantallas md en adelante */}
-        <Col md={3} lg={2} className="d-none d-md-block p-0">
-          <Sidebar />
-        </Col>
+      <div className="app-shell d-flex">
+        {/* Sidebar fijo, solo visible en pantallas md en adelante. Se puede contraer a solo íconos */}
+        <div className={`app-sidebar d-none d-md-block${colapsado ? ' app-sidebar--colapsado' : ''}`}>
+          <Sidebar colapsado={colapsado} onToggleColapsar={() => setColapsado((v) => !v)} />
+        </div>
 
-        <Col xs={12} md={9} lg={10} className="p-0">
+        <div className="app-content d-flex flex-column flex-grow-1">
           <Navbar onToggleSidebar={() => setMostrarMenu(true)} />
-          <div className="p-3 p-md-4">{children}</div>
-        </Col>
-      </Row>
+          <main className="flex-grow-1 p-3 p-md-4">{children}</main>
+        </div>
+      </div>
 
       {/* Menu deslizante, solo en mobile (oculto en md en adelante via CSS) */}
       <Offcanvas
