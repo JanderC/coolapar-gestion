@@ -1,6 +1,6 @@
 import axiosClient from './axiosClient';
 
-// ---------- Catálogo ----------
+// ---------- Catálogo ----------   
 export const listarInsumos = (params) => axiosClient.get('/insumos', { params }).then((r) => r.data);
 
 export const obtenerInsumo = (id) => axiosClient.get(`/insumos/${id}`).then((r) => r.data);

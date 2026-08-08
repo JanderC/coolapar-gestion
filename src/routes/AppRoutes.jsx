@@ -8,6 +8,7 @@ import Productores from '../pages/productores/Productores';
 import RegistroLeche from '../pages/registroLeche/RegistroLeche';
 import Ruteros from '../pages/ruteros/Ruteros';
 import Insumos from '../pages/insumos/Insumos';
+import Produccion from '../pages/produccion/Produccion';
 
 // Módulos fuera de servicio. Los archivos siguen en el repo; si hay que
 // reactivar alguno, se descomenta su import y su <Route>.
@@ -45,6 +46,7 @@ const AppRoutes = () => {
       <Route path="/registro-leche" element={conLayout(RegistroLeche)} />
       <Route path="/ruteros" element={conLayout(Ruteros)} />
       <Route path="/insumos" element={conLayout(Insumos)} />
+      <Route path="/produccion" element={conLayout(Produccion)} />
 
       {/* Enlaces viejos que la gente puede tener guardados */}
       <Route path="/transportadores" element={<Navigate to="/ruteros" replace />} />
