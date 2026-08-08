@@ -1,10 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Table, Button, Modal, Form, Alert, Badge, InputGroup, Tabs, Tab } from 'react-bootstrap';
 import * as produccionApi from '../../api/produccion.api';
+import * as productoresApi from '../../api/productores.api';
+import * as ruterosApi from '../../api/ruteros.api';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { desempacar, formatoCorto, hoy, vacio } from '../../utils/fechas';
 
 const PRODUCTOS_SUGERIDOS = ['Semiduro', 'Queso blanco', 'Queso duro', 'Requesón', 'Mantequilla', 'Suero'];
+
+const OTRO = '__otro__';
 
 const formVacio = { fecha: hoy(), producto: '', notas: '', cantidad_unidades: '' };
 
@@ -18,6 +22,10 @@ const Produccion = () => {
 
   const [busqueda, setBusqueda] = useState('');
   const [verInactivos, setVerInactivos] = useState(false);
+
+  // Para poblar el selector de "origen" de cada aporte de litros.
+  const [productores, setProductores] = useState([]);
+  const [ruteros, setRuteros] = useState([]);
 
   const [mostrarModal, setMostrarModal] = useState(false);
   const [editandoId, setEditandoId] = useState(null);
@@ -59,10 +67,27 @@ const Produccion = () => {
     }
   }, []);
 
+  // Lista de productores/ruteros para el selector de "origen" de cada
+  // aporte. Si alguna de las dos llamadas falla, la otra igual se usa —
+  // no bloquea el formulario, simplemente ese grupo queda vacío.
+  const cargarOrigenes = useCallback(async () => {
+    try {
+      setProductores(desempacar(await productoresApi.listarProductores()) || []);
+    } catch {
+      setProductores([]);
+    }
+    try {
+      setRuteros(desempacar(await ruterosApi.listarRuteros()) || []);
+    } catch {
+      setRuteros([]);
+    }
+  }, []);
+
   useEffect(() => {
     cargarLotes();
     cargarResumen();
-  }, [cargarResumen]);
+    cargarOrigenes();
+  }, [cargarResumen, cargarOrigenes]);
 
   const lotesVisibles = useMemo(() => {
     const texto = busqueda.trim().toLowerCase();
@@ -86,11 +111,43 @@ const Produccion = () => {
 
   const porcentajePreview = kilosTotal > 0 ? litrosTotal / kilosTotal : null;
 
+  const productoresActivos = useMemo(() => productores.filter((p) => p.activo), [productores]);
+  const ruterosActivos = useMemo(() => ruteros.filter((r) => r.activo), [ruteros]);
+  const etiquetaRutero = (r) => `${r.nombre} (rutero)`;
+
+  // Si el origen guardado coincide exactamente con un productor o rutero
+  // activo, la fila se muestra en modo "lista". Si no coincide con nada
+  // (o quedó vacío), se muestra en modo "escribir".
+  const coincideConLista = (origen) => {
+    if (vacio(origen)) return false;
+    return (
+      productoresActivos.some((p) => p.nombre === origen) || ruterosActivos.some((r) => etiquetaRutero(r) === origen)
+    );
+  };
+
   // ---------- Filas dinámicas ----------
-  const agregarAporte = () => setAportesLitros((prev) => [...prev, { id: nuevoId(), origen: '', litros: '' }]);
+  const agregarAporte = () =>
+    setAportesLitros((prev) => [...prev, { id: nuevoId(), origen: '', litros: '', personalizado: false }]);
   const quitarAporte = (id) => setAportesLitros((prev) => prev.filter((a) => a.id !== id));
   const cambiarAporte = (id, campo, valor) =>
     setAportesLitros((prev) => prev.map((a) => (a.id === id ? { ...a, [campo]: valor } : a)));
+
+  // Al elegir del select: si escogen "Otro", la fila pasa a modo texto
+  // libre (y se limpia el origen para que lo escriban). Si escogen un
+  // nombre real, ese nombre queda como origen directamente.
+  const elegirOrigenAporte = (id, valor) => {
+    if (valor === OTRO) {
+      cambiarAporte(id, 'personalizado', true);
+      cambiarAporte(id, 'origen', '');
+    } else {
+      cambiarAporte(id, 'origen', valor);
+    }
+  };
+
+  const volverALista = (id) => {
+    cambiarAporte(id, 'personalizado', false);
+    cambiarAporte(id, 'origen', '');
+  };
 
   const agregarPieza = () => setPesosPiezas((prev) => [...prev, { id: nuevoId(), peso: '' }]);
   const quitarPieza = (id) => setPesosPiezas((prev) => prev.filter((p) => p.id !== id));
@@ -119,7 +176,14 @@ const Produccion = () => {
     });
 
     if (Array.isArray(l.detalle_litros) && l.detalle_litros.length > 0) {
-      setAportesLitros(l.detalle_litros.map((d) => ({ id: nuevoId(), origen: d.origen || '', litros: d.litros ?? '' })));
+      setAportesLitros(
+        l.detalle_litros.map((d) => ({
+          id: nuevoId(),
+          origen: d.origen || '',
+          litros: d.litros ?? '',
+          personalizado: !coincideConLista(d.origen),
+        }))
+      );
       setLitrosManual('');
     } else {
       setAportesLitros([]);
@@ -392,12 +456,52 @@ const Produccion = () => {
             ) : (
               <div className="mb-3">
                 {aportesLitros.map((a) => (
-                  <div key={a.id} className="d-flex gap-2 mb-2">
-                    <Form.Control
-                      placeholder="Origen (ej: Yoar, Raul - parada 1)"
-                      value={a.origen}
-                      onChange={(e) => cambiarAporte(a.id, 'origen', e.target.value)}
-                    />
+                  <div key={a.id} className="d-flex gap-2 mb-2 align-items-start">
+                    {a.personalizado ? (
+                      <div className="flex-grow-1">
+                        <Form.Control
+                          placeholder="Nombre de quien trajo la leche"
+                          value={a.origen}
+                          onChange={(e) => cambiarAporte(a.id, 'origen', e.target.value)}
+                          autoFocus
+                        />
+                        <Button
+                          variant="link"
+                          size="sm"
+                          className="p-0 mt-1"
+                          onClick={() => volverALista(a.id)}
+                        >
+                          Elegir de la lista
+                        </Button>
+                      </div>
+                    ) : (
+                      <Form.Select
+                        className="flex-grow-1"
+                        value={a.origen}
+                        onChange={(e) => elegirOrigenAporte(a.id, e.target.value)}
+                      >
+                        <option value="">Seleccione productor o rutero</option>
+                        {productoresActivos.length > 0 && (
+                          <optgroup label="Productores">
+                            {productoresActivos.map((p) => (
+                              <option key={`p-${p.id}`} value={p.nombre}>
+                                {p.nombre}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {ruterosActivos.length > 0 && (
+                          <optgroup label="Ruteros">
+                            {ruterosActivos.map((r) => (
+                              <option key={`r-${r.id}`} value={etiquetaRutero(r)}>
+                                {etiquetaRutero(r)}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        <option value={OTRO}>Otro (escribir)...</option>
+                      </Form.Select>
+                    )}
                     <InputGroup style={{ maxWidth: 150 }}>
                       <Form.Control
                         type="number"
