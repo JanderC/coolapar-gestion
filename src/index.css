@@ -236,6 +236,19 @@ body {
   background-color: #f5f7f5;
 }
 
+/* Bootstrap "info" (ej. badge "Semana guardada") en tono acorde a la marca,
+   en vez del cian por defecto que choca con el verde/tierra del resto */
+.bg-info {
+  background-color: #4d7e93 !important;
+  color: #ffffff !important;
+}
+
+/* Divisor sutil para la fila de acción dentro de una card (ej. "Cargar otra semana") */
+.card-footer.d-flex.justify-content-end {
+  padding-top: 0.65rem;
+  padding-bottom: 0.65rem;
+}
+
 /* ===== Modales y menús desplegables ===== */
 .modal-content {
   border-radius: 14px;

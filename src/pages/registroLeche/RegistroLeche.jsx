@@ -905,14 +905,14 @@ const RegistroLeche = () => {
             <Form.Text className="text-muted">Solo si trae litros bajos en grasa.</Form.Text>
           </div>
 
-          {productorId && (
-            <div className="ms-auto">
-              <Button variant="outline-secondary" onClick={semanaNueva}>
-                Cargar otra semana
-              </Button>
-            </div>
-          )}
         </Card.Body>
+        {productorId && (
+          <Card.Footer className="d-flex justify-content-end">
+            <Button variant="outline-secondary" onClick={semanaNueva}>
+              Cargar otra semana
+            </Button>
+          </Card.Footer>
+        )}
       </Card>
 
       {!productorId ? (
@@ -965,7 +965,7 @@ const RegistroLeche = () => {
                 <th style={{ width: 130 }}>Litros buenos</th>
                 <th style={{ width: 130 }}>Litros ácidos</th>
                 <th style={{ width: 140 }}>Litros bajo en grasa</th>
-                <th>Subtotal</th>
+                <th className="text-end">Subtotal</th>
               </tr>
             </thead>
             <tbody>
@@ -1018,7 +1018,7 @@ const RegistroLeche = () => {
                         onChange={(e) => cambiarDia(d.fecha, 'litros_bajo_grasa', e.target.value)}
                       />
                     </td>
-                    <td className={tieneDatos ? '' : 'text-muted'}>
+                    <td className={`text-end ${tieneDatos ? '' : 'text-muted'}`}>
                       {tieneDatos ? formatearMontoEnMoneda(subtotal, moneda) : 'No trajo'}
                     </td>
                   </tr>
@@ -1034,7 +1034,7 @@ const RegistroLeche = () => {
                 <th>{totales.litros} litros</th>
                 <th>{totales.litrosAcidos > 0 ? `${totales.litrosAcidos} ácidos` : '—'}</th>
                 <th>{totales.litrosBajoGrasa > 0 ? `${totales.litrosBajoGrasa} bajos en grasa` : '—'}</th>
-                <th className="fs-5">{formatearMontoEnMoneda(totales.pagar, moneda)}</th>
+                <th className="fs-5 text-end">{formatearMontoEnMoneda(totales.pagar, moneda)}</th>
               </tr>
             </tfoot>
           </Table>
