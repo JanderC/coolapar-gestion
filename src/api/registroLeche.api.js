@@ -10,6 +10,11 @@ export const guardarHoja = (data) => axiosClient.post(`${BASE}/hoja`, data).then
 
 export const registrarPagoSemana = (data) => axiosClient.post(`${BASE}/hoja/pago`, data).then((r) => r.data);
 
+// Resumen de la semana: todos los productores que dejaron leche en un rango
+// de fechas, con su litraje dia por dia y su total a pagar.
+export const resumenSemana = (params) =>
+  axiosClient.get(`${BASE}/resumen-semana`, { params }).then((r) => r.data);
+
 export const historialProductor = (productor_id, pagina = 1, por_pagina = 10) =>
   axiosClient.get(`${BASE}/historial`, { params: { productor_id, pagina, por_pagina } }).then((r) => r.data);
 
