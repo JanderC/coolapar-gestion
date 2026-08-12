@@ -45,6 +45,16 @@ const IconProduccion = (props) => (
   </svg>
 );
 
+const IconCuartoFrio = (props) => (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <path d="M12 2v20" />
+    <path d="M4.5 6.5 19.5 17.5" />
+    <path d="M19.5 6.5 4.5 17.5" />
+    <path d="M12 6 9.5 3.5M12 6l2.5-2.5" />
+    <path d="M12 18l-2.5 2.5M12 18l2.5 2.5" />
+  </svg>
+);
+
 const IconChevron = ({ colapsado }) => (
   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <polyline points={colapsado ? '9 18 15 12 9 6' : '15 18 9 12 15 6'} />
@@ -59,6 +69,7 @@ const enlaces = [
   { to: '/ruteros', label: 'Ruteros', icon: IconRuteros },
   { to: '/insumos', label: 'Inventario de insumos', icon: IconInsumos },
   { to: '/produccion', label: 'Creación de producto', icon: IconProduccion },
+  { to: '/cuarto-frio', label: 'Cuarto frío', icon: IconCuartoFrio },
 ];
 
 const Sidebar = ({ onNavigate, mostrarEncabezado = true, colapsado = false, onToggleColapsar }) => {

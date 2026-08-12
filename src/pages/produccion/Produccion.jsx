@@ -4,6 +4,7 @@ import * as produccionApi from '../../api/produccion.api';
 import * as productoresApi from '../../api/productores.api';
 import * as ruterosApi from '../../api/ruteros.api';
 import * as insumosApi from '../../api/insumos.api';
+import * as cuartoFrioApi from '../../api/cuartoFrio.api';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { desempacar, formatoCorto, hoy, vacio } from '../../utils/fechas';
 
@@ -109,7 +110,8 @@ const Produccion = () => {
     cargarResumen();
     cargarOrigenes();
     cargarInsumos();
-  }, [cargarResumen, cargarOrigenes, cargarInsumos]);
+    cargarCuartoFrio();
+  }, [cargarResumen, cargarOrigenes, cargarInsumos, cargarCuartoFrio]);
 
   const lotesVisibles = useMemo(() => {
     const texto = busqueda.trim().toLowerCase();
@@ -146,6 +148,66 @@ const Produccion = () => {
       productoresActivos.some((p) => p.nombre === origen) || ruterosActivos.some((r) => etiquetaRutero(r) === origen)
     );
   };
+
+  // ---------- Quesos del cuarto frío que se vuelven a fundir ----------
+  const [existenciasFrio, setExistenciasFrio] = useState([]);
+  const [lineasReproceso, setLineasReproceso] = useState([]);
+
+  const cargarCuartoFrio = useCallback(async () => {
+    try {
+      const datos = desempacar(await cuartoFrioApi.obtenerExistencias());
+      setExistenciasFrio(datos?.productos || []);
+    } catch {
+      setExistenciasFrio([]);
+    }
+  }, []);
+
+  const agregarLineaReproceso = () =>
+    setLineasReproceso((prev) => [...prev, { id: nuevoId(), producto: '', kilos: '', piezas: '' }]);
+
+  const quitarLineaReproceso = (id) => setLineasReproceso((prev) => prev.filter((l) => l.id !== id));
+
+  const cambiarLineaReproceso = (id, campo, valor) =>
+    setLineasReproceso((prev) => prev.map((l) => (l.id === id ? { ...l, [campo]: valor } : l)));
+
+  /**
+   * Lo que este mismo lote ya tenía tomado del cuarto frío no cuenta como
+   * faltante: al corregirlo, el backend primero lo devuelve y después
+   * vuelve a descontar.
+   */
+  const yaTomadoDelFrio = useCallback(
+    (producto) => {
+      if (!editandoId) return 0;
+      const lote = lotes.find((l) => String(l.id) === String(editandoId));
+      const previos = Array.isArray(lote?.MovimientosCuartoFrio) ? lote.MovimientosCuartoFrio : [];
+      return previos
+        .filter((m) => m.tipo === 'reproceso' && m.producto === producto)
+        .reduce((s, m) => s + Number(m.kilos) * -m.signo, 0);
+    },
+    [editandoId, lotes]
+  );
+
+  const disponibleEnFrio = useCallback(
+    (producto) => {
+      const fila = existenciasFrio.find((p) => p.producto === producto);
+      return Number(fila?.kilos || 0) + yaTomadoDelFrio(producto);
+    },
+    [existenciasFrio, yaTomadoDelFrio]
+  );
+
+  const reprocesoSinExistencia = useMemo(
+    () =>
+      lineasReproceso.filter((l) => {
+        if (vacio(l.producto) || vacio(l.kilos)) return false;
+        return Number(l.kilos) > disponibleEnFrio(l.producto);
+      }),
+    [lineasReproceso, disponibleEnFrio]
+  );
+
+  const kilosReprocesados = useMemo(
+    () => lineasReproceso.reduce((s, l) => s + (Number(l.kilos) || 0), 0),
+    [lineasReproceso]
+  );
 
   // ---------- Insumos gastados ----------
   const insumosActivos = useMemo(
@@ -293,6 +355,7 @@ const Produccion = () => {
     setLitrosManual('');
     setKilosManual('');
     setLineasInsumos([]);
+    setLineasReproceso([]);
     setPrecioLeche('');
     setMonedaLeche('BS');
     setFormulaSugerida(null);
@@ -338,6 +401,18 @@ const Produccion = () => {
     setLineasInsumos(
       guardadas.map((i) => ({ id: nuevoId(), insumo_id: String(i.insumo_id), cantidad: String(i.cantidad) }))
     );
+    // Lo que este lote habia tomado del cuarto frio, si el backend lo trae.
+    const previos = Array.isArray(l.MovimientosCuartoFrio) ? l.MovimientosCuartoFrio : [];
+    setLineasReproceso(
+      previos
+        .filter((m) => m.tipo === 'reproceso' && m.signo === -1)
+        .map((m) => ({
+          id: nuevoId(),
+          producto: m.producto,
+          kilos: String(m.kilos),
+          piezas: m.piezas ? String(m.piezas) : '',
+        }))
+    );
     setPrecioLeche(l.precio_litro_leche ?? '');
     setMonedaLeche(l.moneda_leche || 'BS');
     setFormulaSugerida(null);
@@ -359,6 +434,9 @@ const Produccion = () => {
     if (lineasSinExistencia.length > 0) {
       return setErrorForm('No hay existencia suficiente de un insumo. Revise las líneas marcadas en rojo.');
     }
+    if (reprocesoSinExistencia.length > 0) {
+      return setErrorForm('No hay suficiente queso en cuarto frío. Revise las líneas marcadas en rojo.');
+    }
 
     const payload = {
       fecha: form.fecha,
@@ -369,6 +447,13 @@ const Produccion = () => {
       insumos_usados: lineasInsumos
         .filter((l) => !vacio(l.insumo_id) && !vacio(l.cantidad) && Number(l.cantidad) > 0)
         .map((l) => ({ insumo_id: Number(l.insumo_id), cantidad: Number(l.cantidad) })),
+      reproceso_cuarto_frio: lineasReproceso
+        .filter((l) => !vacio(l.producto) && !vacio(l.kilos) && Number(l.kilos) > 0)
+        .map((l) => ({
+          producto: l.producto,
+          kilos: Number(l.kilos),
+          piezas: vacio(l.piezas) ? null : Number(l.piezas),
+        })),
       precio_litro_leche: vacio(precioLeche) ? null : Number(precioLeche),
       moneda_leche: vacio(precioLeche) ? null : monedaLeche,
     };
@@ -397,7 +482,7 @@ const Produccion = () => {
       }
       setMostrarModal(false);
       setAviso(editandoId ? 'Lote actualizado.' : 'Lote registrado.');
-      await Promise.all([cargarLotes(), cargarResumen(), cargarInsumos()]);
+      await Promise.all([cargarLotes(), cargarResumen(), cargarInsumos(), cargarCuartoFrio()]);
     } catch (err) {
       setErrorForm(err.response?.data?.message || 'No se pudo guardar el lote.');
     } finally {
@@ -748,6 +833,89 @@ const Produccion = () => {
                 Rendimiento: <strong className="fs-5">{porcentajePreview.toFixed(4)}</strong> litros por kilo
               </Alert>
             )}
+
+            {/* ---------- Reproceso desde el cuarto frío ---------- */}
+            <div className="border rounded p-3 mb-3">
+              <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                <div>
+                  <strong>¿Se fundió queso del cuarto frío?</strong>
+                  <div className="text-muted small">
+                    Queso viejo o devuelto que entra en este lote. Sale del cuarto frío al guardar.
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline-success"
+                  onClick={agregarLineaReproceso}
+                  disabled={existenciasFrio.length === 0}
+                >
+                  + Agregar queso
+                </Button>
+              </div>
+
+              {existenciasFrio.length === 0 ? (
+                <p className="text-muted small mb-0">El cuarto frío está vacío: no hay nada que reprocesar.</p>
+              ) : lineasReproceso.length === 0 ? (
+                <p className="text-muted small mb-0">
+                  Nada del cuarto frío en este lote. Si fundió queso devuelto, agréguelo aquí para que baje del
+                  inventario.
+                </p>
+              ) : (
+                <div className="d-flex flex-column gap-2">
+                  {lineasReproceso.map((linea) => {
+                    const disponible = linea.producto ? disponibleEnFrio(linea.producto) : null;
+                    const excede = linea.producto && !vacio(linea.kilos) && Number(linea.kilos) > disponible;
+                    return (
+                      <div key={linea.id}>
+                        <InputGroup>
+                          <Form.Select
+                            value={linea.producto}
+                            onChange={(e) => cambiarLineaReproceso(linea.id, 'producto', e.target.value)}
+                          >
+                            <option value="">Elija el queso</option>
+                            {existenciasFrio.map((p) => (
+                              <option key={p.producto} value={p.producto}>
+                                {p.producto} ({Number(p.kilos).toFixed(3)} kg disponibles)
+                              </option>
+                            ))}
+                          </Form.Select>
+                          <Form.Control
+                            type="number"
+                            min="0"
+                            step="0.001"
+                            value={linea.kilos}
+                            isInvalid={excede}
+                            onChange={(e) => cambiarLineaReproceso(linea.id, 'kilos', e.target.value)}
+                            placeholder="Kilos"
+                            style={{ maxWidth: 130 }}
+                          />
+                          <InputGroup.Text>kg</InputGroup.Text>
+                          <Form.Control
+                            type="number"
+                            min="0"
+                            value={linea.piezas}
+                            onChange={(e) => cambiarLineaReproceso(linea.id, 'piezas', e.target.value)}
+                            placeholder="Piezas"
+                            style={{ maxWidth: 110 }}
+                          />
+                          <Button variant="outline-danger" onClick={() => quitarLineaReproceso(linea.id)}>
+                            ✕
+                          </Button>
+                        </InputGroup>
+                        {excede && (
+                          <div className="text-danger small mt-1">
+                            En cuarto frío solo hay {Number(disponible).toFixed(3)} kg de {linea.producto}.
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  <div className="text-end text-muted small">
+                    Se funden <strong>{kilosReprocesados.toFixed(3)} kg</strong> de queso del cuarto frío.
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* ---------- Insumos gastados ---------- */}
             <div className="border rounded p-3 mb-3">
