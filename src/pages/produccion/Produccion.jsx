@@ -3,12 +3,15 @@ import { Table, Button, Modal, Form, Alert, Badge, InputGroup, Tabs, Tab } from 
 import * as produccionApi from '../../api/produccion.api';
 import * as productoresApi from '../../api/productores.api';
 import * as ruterosApi from '../../api/ruteros.api';
+import * as insumosApi from '../../api/insumos.api';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { desempacar, formatoCorto, hoy, vacio } from '../../utils/fechas';
 
 const PRODUCTOS_SUGERIDOS = ['Semiduro', 'Queso blanco', 'Queso duro', 'Requesón', 'Mantequilla', 'Suero'];
 
 const OTRO = '__otro__';
+
+const MONEDAS_LOTE = ['BS', 'USD', 'COP'];
 
 const formVacio = { fecha: hoy(), producto: '', notas: '', cantidad_unidades: '' };
 
@@ -41,6 +44,15 @@ const Produccion = () => {
   const [pesosPiezas, setPesosPiezas] = useState([]);
   const [kilosManual, setKilosManual] = useState('');
 
+  // ---------- Insumos gastados en el lote ----------
+  // La leche va aparte: no es un insumo del inventario, entra por el
+  // registro diario de los productores. Aquí solo se le pone precio.
+  const [insumosDisponibles, setInsumosDisponibles] = useState([]);
+  const [lineasInsumos, setLineasInsumos] = useState([]);
+  const [precioLeche, setPrecioLeche] = useState('');
+  const [monedaLeche, setMonedaLeche] = useState('BS');
+  const [formulaSugerida, setFormulaSugerida] = useState(null);
+
   const idRef = useRef(0);
   const nuevoId = () => {
     idRef.current += 1;
@@ -70,6 +82,15 @@ const Produccion = () => {
   // Lista de productores/ruteros para el selector de "origen" de cada
   // aporte. Si alguna de las dos llamadas falla, la otra igual se usa —
   // no bloquea el formulario, simplemente ese grupo queda vacío.
+  // Catalogo de insumos, para el selector de "que se gasto".
+  const cargarInsumos = useCallback(async () => {
+    try {
+      setInsumosDisponibles(desempacar(await insumosApi.listarInsumos()) || []);
+    } catch {
+      setInsumosDisponibles([]);
+    }
+  }, []);
+
   const cargarOrigenes = useCallback(async () => {
     try {
       setProductores(desempacar(await productoresApi.listarProductores()) || []);
@@ -87,7 +108,8 @@ const Produccion = () => {
     cargarLotes();
     cargarResumen();
     cargarOrigenes();
-  }, [cargarResumen, cargarOrigenes]);
+    cargarInsumos();
+  }, [cargarResumen, cargarOrigenes, cargarInsumos]);
 
   const lotesVisibles = useMemo(() => {
     const texto = busqueda.trim().toLowerCase();
@@ -123,6 +145,114 @@ const Produccion = () => {
     return (
       productoresActivos.some((p) => p.nombre === origen) || ruterosActivos.some((r) => etiquetaRutero(r) === origen)
     );
+  };
+
+  // ---------- Insumos gastados ----------
+  const insumosActivos = useMemo(
+    () => insumosDisponibles.filter((i) => i.activo).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')),
+    [insumosDisponibles]
+  );
+
+  const buscarInsumo = useCallback(
+    (id) => insumosDisponibles.find((i) => String(i.id) === String(id)) || null,
+    [insumosDisponibles]
+  );
+
+  const agregarLineaInsumo = () =>
+    setLineasInsumos((prev) => [...prev, { id: nuevoId(), insumo_id: '', cantidad: '' }]);
+
+  const quitarLineaInsumo = (id) => setLineasInsumos((prev) => prev.filter((l) => l.id !== id));
+
+  const cambiarLineaInsumo = (id, campo, valor) =>
+    setLineasInsumos((prev) => prev.map((l) => (l.id === id ? { ...l, [campo]: valor } : l)));
+
+  /**
+   * Lo ya consumido por este mismo lote no cuenta como faltante: al
+   * corregirlo, el backend primero devuelve todo al inventario y después
+   * vuelve a descontar. Sin esto, editar un lote sin cambiar nada daría
+   * "no hay existencia" en cuanto el stock quedara justo.
+   */
+  const yaConsumidoPorEsteLote = useCallback(
+    (insumoId) => {
+      if (!editandoId) return 0;
+      const lote = lotes.find((l) => String(l.id) === String(editandoId));
+      const guardada = Array.isArray(lote?.insumos_usados) ? lote.insumos_usados : [];
+      const linea = guardada.find((g) => String(g.insumo_id) === String(insumoId));
+      return linea ? Number(linea.cantidad) || 0 : 0;
+    },
+    [editandoId, lotes]
+  );
+
+  const disponibleDe = useCallback(
+    (insumoId) => {
+      const insumo = buscarInsumo(insumoId);
+      if (!insumo) return 0;
+      return Number(insumo.stock_actual || 0) + yaConsumidoPorEsteLote(insumoId);
+    },
+    [buscarInsumo, yaConsumidoPorEsteLote]
+  );
+
+  /** Líneas que piden más de lo que hay. El backend también lo bloquea. */
+  const lineasSinExistencia = useMemo(
+    () =>
+      lineasInsumos.filter((l) => {
+        if (vacio(l.insumo_id) || vacio(l.cantidad)) return false;
+        return Number(l.cantidad) > disponibleDe(l.insumo_id);
+      }),
+    [lineasInsumos, disponibleDe]
+  );
+
+  /** Costo estimado, con los precios de referencia del inventario. */
+  const costoEstimado = useMemo(() => {
+    const porMoneda = new Map();
+    const sumarA = (moneda, monto) => {
+      if (!monto) return;
+      porMoneda.set(moneda, (porMoneda.get(moneda) || 0) + monto);
+    };
+
+    if (!vacio(precioLeche) && litrosTotal > 0) {
+      sumarA(monedaLeche, Number(precioLeche) * litrosTotal);
+    }
+
+    lineasInsumos.forEach((l) => {
+      const insumo = buscarInsumo(l.insumo_id);
+      if (!insumo || vacio(l.cantidad)) return;
+      const precio = insumo.precio_unitario_referencia;
+      if (precio === null || precio === undefined) return;
+      sumarA(insumo.moneda_referencia || 'BS', Number(precio) * Number(l.cantidad));
+    });
+
+    return [...porMoneda.entries()].map(([moneda, monto]) => ({ moneda, monto }));
+  }, [precioLeche, monedaLeche, litrosTotal, lineasInsumos, buscarInsumo]);
+
+  /** Carga la fórmula del último lote de ese producto, si existe. */
+  const buscarFormulaAnterior = useCallback(async (producto) => {
+    setFormulaSugerida(null);
+    if (vacio(producto) || typeof produccionApi.obtenerUltimaFormula !== 'function') return;
+    try {
+      const datos = desempacar(await produccionApi.obtenerUltimaFormula(producto));
+      if (datos && Array.isArray(datos.insumos_usados) && datos.insumos_usados.length > 0) {
+        setFormulaSugerida(datos);
+      }
+    } catch {
+      setFormulaSugerida(null);
+    }
+  }, []);
+
+  const aplicarFormulaSugerida = () => {
+    if (!formulaSugerida) return;
+    setLineasInsumos(
+      formulaSugerida.insumos_usados.map((i) => ({
+        id: nuevoId(),
+        insumo_id: String(i.insumo_id),
+        cantidad: String(i.cantidad),
+      }))
+    );
+    if (!vacio(formulaSugerida.precio_litro_leche)) {
+      setPrecioLeche(String(formulaSugerida.precio_litro_leche));
+      setMonedaLeche(formulaSugerida.moneda_leche || 'BS');
+    }
+    setFormulaSugerida(null);
   };
 
   // ---------- Filas dinámicas ----------
@@ -162,6 +292,10 @@ const Produccion = () => {
     setPesosPiezas([]);
     setLitrosManual('');
     setKilosManual('');
+    setLineasInsumos([]);
+    setPrecioLeche('');
+    setMonedaLeche('BS');
+    setFormulaSugerida(null);
     setErrorForm('');
     setMostrarModal(true);
   };
@@ -198,6 +332,16 @@ const Produccion = () => {
       setKilosManual(l.kilos_obtenidos ?? '');
     }
 
+    // La formula guardada del lote vuelve al formulario tal cual: el
+    // backend devuelve al inventario y vuelve a descontar segun quede.
+    const guardadas = Array.isArray(l.insumos_usados) ? l.insumos_usados : [];
+    setLineasInsumos(
+      guardadas.map((i) => ({ id: nuevoId(), insumo_id: String(i.insumo_id), cantidad: String(i.cantidad) }))
+    );
+    setPrecioLeche(l.precio_litro_leche ?? '');
+    setMonedaLeche(l.moneda_leche || 'BS');
+    setFormulaSugerida(null);
+
     setErrorForm('');
     setMostrarModal(true);
   };
@@ -210,10 +354,23 @@ const Produccion = () => {
     if (litrosTotal <= 0) return setErrorForm('Indique los litros recibidos (directo o por aporte).');
     if (kilosTotal <= 0) return setErrorForm('Indique los kilos obtenidos (directo o por pieza).');
 
+    const sinInsumo = lineasInsumos.filter((l) => !vacio(l.cantidad) && vacio(l.insumo_id));
+    if (sinInsumo.length > 0) return setErrorForm('Hay una cantidad cargada sin elegir el insumo.');
+    if (lineasSinExistencia.length > 0) {
+      return setErrorForm('No hay existencia suficiente de un insumo. Revise las líneas marcadas en rojo.');
+    }
+
     const payload = {
       fecha: form.fecha,
       producto: form.producto.trim(),
       notas: vacio(form.notas) ? null : form.notas.trim(),
+      // Siempre se manda la lista, aunque vaya vacia: es lo que le dice al
+      // backend que tiene que rehacer el consumo de este lote.
+      insumos_usados: lineasInsumos
+        .filter((l) => !vacio(l.insumo_id) && !vacio(l.cantidad) && Number(l.cantidad) > 0)
+        .map((l) => ({ insumo_id: Number(l.insumo_id), cantidad: Number(l.cantidad) })),
+      precio_litro_leche: vacio(precioLeche) ? null : Number(precioLeche),
+      moneda_leche: vacio(precioLeche) ? null : monedaLeche,
     };
 
     if (aportesLitros.length > 0) {
@@ -240,7 +397,7 @@ const Produccion = () => {
       }
       setMostrarModal(false);
       setAviso(editandoId ? 'Lote actualizado.' : 'Lote registrado.');
-      await Promise.all([cargarLotes(), cargarResumen()]);
+      await Promise.all([cargarLotes(), cargarResumen(), cargarInsumos()]);
     } catch (err) {
       setErrorForm(err.response?.data?.message || 'No se pudo guardar el lote.');
     } finally {
@@ -416,6 +573,9 @@ const Produccion = () => {
                 <Form.Control
                   value={form.producto}
                   onChange={(e) => setForm({ ...form, producto: e.target.value })}
+                  // Al salir del campo se busca que se gasto la ultima vez
+                  // que se hizo este producto, para poder repetir la formula.
+                  onBlur={(e) => !editandoId && buscarFormulaAnterior(e.target.value.trim())}
                   placeholder="Semiduro, Queso blanco, Requesón..."
                   list="productos-sugeridos"
                   required
@@ -588,6 +748,127 @@ const Produccion = () => {
                 Rendimiento: <strong className="fs-5">{porcentajePreview.toFixed(4)}</strong> litros por kilo
               </Alert>
             )}
+
+            {/* ---------- Insumos gastados ---------- */}
+            <div className="border rounded p-3 mb-3">
+              <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                <div>
+                  <strong>¿Qué se gastó para hacerlo?</strong>
+                  <div className="text-muted small">
+                    Lo que cargue aquí se descuenta del inventario en cuanto guarde el lote.
+                  </div>
+                </div>
+                <Button size="sm" variant="outline-success" onClick={agregarLineaInsumo}>
+                  + Agregar insumo
+                </Button>
+              </div>
+
+              {formulaSugerida && lineasInsumos.length === 0 && (
+                <Alert variant="light" className="border py-2 d-flex flex-wrap align-items-center gap-2">
+                  <span className="small">
+                    El último {formulaSugerida.producto} ({formatoCorto(formulaSugerida.fecha)}) gastó{' '}
+                    {formulaSugerida.insumos_usados
+                      .map((i) => `${i.cantidad} ${i.unidad_medida} de ${i.nombre}`)
+                      .join(', ')}
+                    .
+                  </span>
+                  <Button size="sm" variant="success" className="ms-auto" onClick={aplicarFormulaSugerida}>
+                    Usar esa fórmula
+                  </Button>
+                </Alert>
+              )}
+
+              {/* Leche: no sale del inventario, pero sí lleva precio. */}
+              <div className="mb-3">
+                <Form.Label className="small text-muted mb-1">
+                  Precio de la leche — {litrosTotal > 0 ? `${litrosTotal} litros en este lote` : 'cargue los litros arriba'}
+                </Form.Label>
+                <InputGroup>
+                  <Form.Select value={monedaLeche} onChange={(e) => setMonedaLeche(e.target.value)} style={{ maxWidth: 120 }}>
+                    {MONEDAS_LOTE.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </Form.Select>
+                  <Form.Control
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={precioLeche}
+                    onChange={(e) => setPrecioLeche(e.target.value)}
+                    placeholder="0.00"
+                  />
+                  <InputGroup.Text>por litro</InputGroup.Text>
+                </InputGroup>
+                <Form.Text className="text-muted">
+                  La leche no se descuenta del inventario de productos: entra por el registro diario de los
+                  productores. El precio se anota aquí para saber cuánto costó este lote.
+                </Form.Text>
+              </div>
+
+              {lineasInsumos.length === 0 ? (
+                <p className="text-muted small mb-0">
+                  Sin insumos cargados todavía. Agregue la sal, el cuajo, los empaques y todo lo que se haya usado.
+                </p>
+              ) : (
+                <div className="d-flex flex-column gap-2">
+                  {lineasInsumos.map((linea) => {
+                    const insumo = buscarInsumo(linea.insumo_id);
+                    const disponible = linea.insumo_id ? disponibleDe(linea.insumo_id) : null;
+                    const excede = insumo && !vacio(linea.cantidad) && Number(linea.cantidad) > disponible;
+                    return (
+                      <div key={linea.id}>
+                        <InputGroup>
+                          <Form.Select
+                            value={linea.insumo_id}
+                            onChange={(e) => cambiarLineaInsumo(linea.id, 'insumo_id', e.target.value)}
+                          >
+                            <option value="">Elija el insumo</option>
+                            {insumosActivos.map((i) => (
+                              <option key={i.id} value={i.id}>
+                                {i.nombre} ({Number(i.stock_actual)} {i.unidad_medida} disponibles)
+                              </option>
+                            ))}
+                          </Form.Select>
+                          <Form.Control
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={linea.cantidad}
+                            isInvalid={excede}
+                            onChange={(e) => cambiarLineaInsumo(linea.id, 'cantidad', e.target.value)}
+                            placeholder="Cantidad"
+                            style={{ maxWidth: 140 }}
+                          />
+                          <InputGroup.Text>{insumo?.unidad_medida || '—'}</InputGroup.Text>
+                          <Button variant="outline-danger" onClick={() => quitarLineaInsumo(linea.id)}>
+                            ✕
+                          </Button>
+                        </InputGroup>
+                        {excede && (
+                          <div className="text-danger small mt-1">
+                            Solo hay {disponible} {insumo.unidad_medida} de {insumo.nombre}.
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {costoEstimado.length > 0 && (
+                <div className="text-end text-muted small mt-3 pt-2 border-top">
+                  Costo estimado del lote:{' '}
+                  {costoEstimado.map((c) => (
+                    <strong key={c.moneda} className="ms-2">
+                      {c.monto.toFixed(2)} {c.moneda}
+                    </strong>
+                  ))}
+                  <div>Con los precios de referencia del inventario y el precio de leche que puso arriba.</div>
+                </div>
+              )}
+            </div>
 
             <Form.Group>
               <Form.Label>Notas (opcional)</Form.Label>
