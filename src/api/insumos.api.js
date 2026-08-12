@@ -1,5 +1,8 @@
 import axiosClient from './axiosClient';
 
+export const resumenInventario = (params) =>
+  axiosClient.get('/insumos/resumen', { params }).then((r) => r.data);
+
 // ---------- Catálogo ----------   
 export const listarInsumos = (params) => axiosClient.get('/insumos', { params }).then((r) => r.data);
 
@@ -11,7 +14,7 @@ export const actualizarInsumo = (id, data) => axiosClient.put(`/insumos/${id}`, 
 
 export const eliminarInsumo = (id) => axiosClient.delete(`/insumos/${id}`).then((r) => r.data);
 
-// ---------- Kardex (entradas / salidas) ----------
+// ---------- Entradas y salidas (compras / consumos) ----------
 export const listarMovimientos = (insumoId, params) =>
   axiosClient.get(`/insumos/${insumoId}/movimientos`, { params }).then((r) => r.data);
 

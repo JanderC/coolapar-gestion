@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Table, Button, Modal, Form, Alert, Badge, InputGroup, Card, Tabs, Tab } from 'react-bootstrap';
+import { Table, Button, Modal, Form, Alert, Badge, InputGroup, Card } from 'react-bootstrap';
 import * as insumosApi from '../../api/insumos.api';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { useMoneda } from '../../context/MonedaContext';
@@ -11,7 +11,23 @@ const OPCIONES_MONEDA = [
   { codigo: 'COP', etiqueta: 'COL$ — Pesos colombianos' },
 ];
 
-const UNIDADES_SUGERIDAS = ['kg', 'g', 'L', 'ml', 'unidades', 'sacos', 'cajas'];
+// Lista cerrada, igual que en el backend. Si la gente escribe la unidad a
+// mano, el mismo producto termina con "Kg", "kilos" y "KILOS", y entonces
+// el inventario ya no se puede sumar ni comparar.
+const UNIDADES = [
+  { codigo: 'kg', etiqueta: 'kg — kilogramos' },
+  { codigo: 'g', etiqueta: 'g — gramos' },
+  { codigo: 'L', etiqueta: 'L — litros' },
+  { codigo: 'ml', etiqueta: 'ml — mililitros' },
+  { codigo: 'unidades', etiqueta: 'unidades — piezas sueltas' },
+  { codigo: 'sacos', etiqueta: 'sacos' },
+  { codigo: 'cajas', etiqueta: 'cajas' },
+  { codigo: 'bolsas', etiqueta: 'bolsas' },
+  { codigo: 'rollos', etiqueta: 'rollos' },
+  { codigo: 'pares', etiqueta: 'pares' },
+  { codigo: 'm', etiqueta: 'm — metros' },
+  { codigo: 'cm', etiqueta: 'cm — centímetros' },
+];
 
 const formInsumoVacio = {
   nombre: '',
@@ -31,21 +47,51 @@ const formMovimientoVacio = {
   descripcion: '',
 };
 
-// Un insumo esta "en alerta" cuando su stock ya cayo al minimo o por debajo.
-// stock_minimo es opcional: si no se definio, nunca entra en alerta.
+/** Un producto está en alerta cuando su stock ya cayó al mínimo o por
+ *  debajo. El mínimo es opcional: sin mínimo, nunca hay alerta. */
 const stockBajo = (i) =>
   i.stock_minimo !== null && i.stock_minimo !== undefined && aNumero(i.stock_actual) <= aNumero(i.stock_minimo);
+
+/** Cantidad + unidad, para no repetir la concatenación en toda la pantalla. */
+const conUnidad = (cantidad, unidad) => `${aNumero(cantidad, 0)} ${unidad || ''}`.trim();
+
+/** Primer día del mes de la fecha dada. */
+const inicioDeMes = (texto) => `${String(texto).slice(0, 7)}-01`;
+
+const detalleError = (err) => {
+  if (err?.response) return err.response.data?.message || `El servidor respondió ${err.response.status}.`;
+  if (err?.request) return 'El servidor no respondió. Revise la conexión.';
+  return err?.message || 'Error desconocido.';
+};
+
+/** Tarjeta grande de un número: se usa para los tres tipos de leche. */
+const TarjetaLeche = ({ titulo, cantidad, unidad, pie }) => (
+  <Card className="flex-grow-1" style={{ minWidth: 200 }}>
+    <Card.Body className="py-3">
+      <div className="text-muted small text-uppercase">{titulo}</div>
+      <div className="fs-3 fw-semibold lh-1 mt-1">
+        {aNumero(cantidad, 0)} <span className="fs-6 text-muted fw-normal">{unidad}</span>
+      </div>
+      {pie && <div className="text-muted small mt-1">{pie}</div>}
+    </Card.Body>
+  </Card>
+);
 
 const Insumos = () => {
   const { formatearMontoEnMoneda } = useMoneda();
 
-  const [pestana, setPestana] = useState('kardex');
   const [insumos, setInsumos] = useState([]);
+  const [leche, setLeche] = useState(null);
+  const [avisoLeche, setAvisoLeche] = useState('');
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState('');
 
-  // ---------- Catálogo ----------
+  // Rango de la leche: por defecto, el mes en curso.
+  const [desde, setDesde] = useState(() => inicioDeMes(hoy()));
+  const [hasta, setHasta] = useState(() => hoy());
+
+  // ---------- Catálogo de productos ----------
   const [busqueda, setBusqueda] = useState('');
   const [verInactivos, setVerInactivos] = useState(false);
   const [mostrarModalInsumo, setMostrarModalInsumo] = useState(false);
@@ -54,7 +100,7 @@ const Insumos = () => {
   const [guardandoInsumo, setGuardandoInsumo] = useState(false);
   const [errorFormInsumo, setErrorFormInsumo] = useState('');
 
-  // ---------- Kardex ----------
+  // ---------- Entradas y salidas del producto elegido ----------
   const [insumoId, setInsumoId] = useState('');
   const [movimientos, setMovimientos] = useState([]);
   const [cargandoMovimientos, setCargandoMovimientos] = useState(false);
@@ -64,25 +110,42 @@ const Insumos = () => {
   const [errorFormMovimiento, setErrorFormMovimiento] = useState('');
   const [anulando, setAnulando] = useState(false);
 
-  const insumo = useMemo(
-    () => insumos.find((i) => String(i.id) === String(insumoId)) || null,
-    [insumos, insumoId]
+  const insumo = useMemo(() => insumos.find((i) => String(i.id) === String(insumoId)) || null, [insumos, insumoId]);
+
+  const cargarTodo = useCallback(
+    async (rangoDesde = desde, rangoHasta = hasta) => {
+      setError('');
+      try {
+        // El endpoint nuevo trae leche + productos de una sola vez. Si
+        // todavía no está en el archivo de api, se cae al listado de
+        // siempre para que la pantalla siga sirviendo.
+        if (typeof insumosApi.resumenInventario === 'function') {
+          const datos = desempacar(
+            await insumosApi.resumenInventario({ fecha_inicio: rangoDesde, fecha_fin: rangoHasta })
+          );
+          setInsumos(datos.insumos || []);
+          setLeche(datos.leche || null);
+          setAvisoLeche('');
+        } else {
+          setInsumos(desempacar(await insumosApi.listarInsumos()) || []);
+          setLeche(null);
+          setAvisoLeche(
+            "Falta agregar resumenInventario() en src/api/insumos.api.js: export const resumenInventario = (params) => axiosClient.get('/insumos/resumen', { params }).then((r) => r.data);"
+          );
+        }
+      } catch (err) {
+        setError(`No se pudo cargar el inventario. ${detalleError(err)}`);
+      } finally {
+        setCargando(false);
+      }
+    },
+    [desde, hasta]
   );
 
-  const cargarInsumos = async () => {
-    setCargando(true);
-    setError('');
-    try {
-      setInsumos(desempacar(await insumosApi.listarInsumos()) || []);
-    } catch (err) {
-      setError(err.response?.data?.message || 'No se pudieron cargar los insumos.');
-    } finally {
-      setCargando(false);
-    }
-  };
-
   useEffect(() => {
-    cargarInsumos();
+    cargarTodo();
+    // Solo en la primera carga: después se refresca a mano o al guardar.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const cargarMovimientos = useCallback(async () => {
@@ -95,7 +158,7 @@ const Insumos = () => {
     try {
       setMovimientos(desempacar(await insumosApi.listarMovimientos(insumoId)) || []);
     } catch (err) {
-      setError(err.response?.data?.message || 'No se pudo cargar el kardex de este insumo.');
+      setError(`No se pudieron cargar las entradas y salidas. ${detalleError(err)}`);
     } finally {
       setCargandoMovimientos(false);
     }
@@ -116,7 +179,7 @@ const Insumos = () => {
 
   const enAlerta = useMemo(() => insumos.filter((i) => i.activo && stockBajo(i)), [insumos]);
 
-  // ---------- CRUD del catálogo ----------
+  // ---------- Alta y edición de productos ----------
   const abrirNuevoInsumo = () => {
     setEditandoId(null);
     setFormInsumo(formInsumoVacio);
@@ -141,12 +204,12 @@ const Insumos = () => {
   const guardarInsumo = async (e) => {
     e.preventDefault();
     setErrorFormInsumo('');
-    if (!formInsumo.nombre.trim()) return setErrorFormInsumo('Escriba el nombre del insumo.');
-    if (!formInsumo.unidad_medida.trim()) return setErrorFormInsumo('Indique la unidad de medida.');
+    if (!formInsumo.nombre.trim()) return setErrorFormInsumo('Escriba el nombre del producto.');
+    if (!formInsumo.unidad_medida) return setErrorFormInsumo('Elija en qué se mide este producto.');
 
     const payload = {
       nombre: formInsumo.nombre.trim(),
-      unidad_medida: formInsumo.unidad_medida.trim(),
+      unidad_medida: formInsumo.unidad_medida,
       precio_unitario_referencia: vacio(formInsumo.precio_unitario_referencia)
         ? null
         : Number(formInsumo.precio_unitario_referencia),
@@ -164,17 +227,23 @@ const Insumos = () => {
         creado = desempacar(await insumosApi.crearInsumo(payload));
       }
       setMostrarModalInsumo(false);
-      setAviso(editandoId ? 'Insumo actualizado.' : 'Insumo registrado. Ahora cargue su stock inicial en el Kardex.');
-      await cargarInsumos();
+      setAviso(
+        editandoId
+          ? 'Producto actualizado.'
+          : 'Producto creado. Empieza en 0: registre una compra para cargarle existencia.'
+      );
+      await cargarTodo();
 
-      // Insumo nuevo: lo llevamos directo al Kardex para que carguen el
-      // stock inicial como una entrada, en vez de dejarlos en el catálogo.
+      // Producto nuevo: queda seleccionado y con el formulario de compra
+      // abierto, que es lo que sigue en la práctica.
       if (creado) {
         setInsumoId(String(creado.id));
-        setPestana('kardex');
+        setFormMovimiento({ ...formMovimientoVacio, tipo: 'entrada', fecha: hoy() });
+        setErrorFormMovimiento('');
+        setMostrarModalMovimiento(true);
       }
     } catch (err) {
-      setErrorFormInsumo(err.response?.data?.message || 'No se pudo guardar el insumo.');
+      setErrorFormInsumo(`No se pudo guardar. ${detalleError(err)}`);
     } finally {
       setGuardandoInsumo(false);
     }
@@ -183,27 +252,25 @@ const Insumos = () => {
   const cambiarEstadoInsumo = async (i) => {
     const desactivando = i.activo;
     const pregunta = desactivando
-      ? `¿Desactivar ${i.nombre}? Dejará de aparecer para registrar movimientos nuevos.`
-      : `¿Reactivar ${i.nombre}?`;
+      ? `¿Archivar ${i.nombre}? Deja de aparecer en la lista, pero su historial se conserva.`
+      : `¿Volver a usar ${i.nombre}?`;
     if (!window.confirm(pregunta)) return;
 
     setError('');
     try {
-      if (desactivando) {
-        await insumosApi.eliminarInsumo(i.id);
-      } else {
-        await insumosApi.actualizarInsumo(i.id, { activo: true });
-      }
-      setAviso(desactivando ? 'Insumo desactivado.' : 'Insumo reactivado.');
-      await cargarInsumos();
+      if (desactivando) await insumosApi.eliminarInsumo(i.id);
+      else await insumosApi.actualizarInsumo(i.id, { activo: true });
+      setAviso(desactivando ? 'Producto archivado.' : 'Producto reactivado.');
+      await cargarTodo();
     } catch (err) {
-      setError(err.response?.data?.message || 'No se pudo cambiar el estado del insumo.');
+      setError(`No se pudo cambiar el estado. ${detalleError(err)}`);
     }
   };
 
-  // ---------- Kardex ----------
-  const abrirModalMovimiento = (tipo) => {
-    setFormMovimiento({ ...formMovimientoVacio, tipo, fecha: hoy() });
+  // ---------- Entradas y salidas ----------
+  const abrirMovimiento = (i, tipo) => {
+    setInsumoId(String(i.id));
+    setFormMovimiento({ ...formMovimientoVacio, tipo, fecha: hoy(), moneda: i.moneda_referencia || 'BS' });
     setErrorFormMovimiento('');
     setMostrarModalMovimiento(true);
   };
@@ -217,10 +284,12 @@ const Insumos = () => {
       return setErrorFormMovimiento('Indique una cantidad mayor a 0.');
     }
     if (formMovimiento.tipo === 'entrada' && (vacio(formMovimiento.precio_unitario) || !formMovimiento.moneda)) {
-      return setErrorFormMovimiento('Las entradas necesitan precio unitario y moneda.');
+      return setErrorFormMovimiento('Para una compra hace falta el precio por unidad y la moneda.');
     }
     if (formMovimiento.tipo === 'salida' && insumo && cantidad > aNumero(insumo.stock_actual)) {
-      return setErrorFormMovimiento(`Stock insuficiente. Hay ${insumo.stock_actual} ${insumo.unidad_medida} disponibles.`);
+      return setErrorFormMovimiento(
+        `No alcanza: quedan ${conUnidad(insumo.stock_actual, insumo.unidad_medida)} en existencia.`
+      );
     }
 
     const payload = {
@@ -239,10 +308,10 @@ const Insumos = () => {
     try {
       await insumosApi.registrarMovimiento(insumoId, payload);
       setMostrarModalMovimiento(false);
-      setAviso(formMovimiento.tipo === 'entrada' ? 'Entrada registrada.' : 'Salida registrada.');
-      await Promise.all([cargarInsumos(), cargarMovimientos()]);
+      setAviso(formMovimiento.tipo === 'entrada' ? 'Compra registrada.' : 'Consumo registrado.');
+      await Promise.all([cargarTodo(), cargarMovimientos()]);
     } catch (err) {
-      setErrorFormMovimiento(err.response?.data?.message || 'No se pudo registrar el movimiento.');
+      setErrorFormMovimiento(`No se pudo registrar. ${detalleError(err)}`);
     } finally {
       setGuardandoMovimiento(false);
     }
@@ -250,30 +319,35 @@ const Insumos = () => {
 
   const anularUltimoMovimiento = async () => {
     if (movimientos.length === 0) return;
-    if (!window.confirm('¿Anular el último movimiento? Esto revierte el stock.')) return;
+    const m = movimientos[0];
+    const texto = m.tipo === 'entrada' ? 'compra' : 'consumo';
+    if (!window.confirm(`¿Deshacer la última ${texto} (${conUnidad(m.cantidad, insumo?.unidad_medida)})?`)) return;
 
     setAnulando(true);
     setError('');
     try {
-      await insumosApi.anularMovimiento(movimientos[0].id);
-      setAviso('Movimiento anulado.');
-      await Promise.all([cargarInsumos(), cargarMovimientos()]);
+      await insumosApi.anularMovimiento(m.id);
+      setAviso('Movimiento deshecho. La existencia volvió como estaba.');
+      await Promise.all([cargarTodo(), cargarMovimientos()]);
     } catch (err) {
-      setError(err.response?.data?.message || 'No se pudo anular el movimiento.');
+      setError(`No se pudo deshacer. ${detalleError(err)}`);
     } finally {
       setAnulando(false);
     }
   };
 
-  if (cargando) return <LoadingSpinner mensaje="Cargando insumos..." />;
+  if (cargando) return <LoadingSpinner mensaje="Cargando inventario..." />;
+
+  const tipoEsEntrada = formMovimiento.tipo === 'entrada';
+  const unidadForm = insumo?.unidad_medida || '';
 
   return (
     <div>
       <div className="page-header mb-3">
-        <h4 className="mb-1">Insumos</h4>
+        <h4 className="mb-1">Inventario</h4>
         <p className="text-muted mb-0">
-          El stock se lleva por kardex: cada compra es una entrada y cada consumo o merma es una salida. El stock
-          actual nunca se edita a mano — se calcula solo, a partir del historial.
+          Arriba, la leche que entra por el registro diario de los productores: se suma sola, no hay que cargarla
+          aquí. Abajo, los demás productos de la planta, donde cada compra suma existencia y cada consumo la resta.
         </p>
       </div>
 
@@ -287,230 +361,304 @@ const Insumos = () => {
           {aviso}
         </Alert>
       )}
+      {avisoLeche && <Alert variant="warning">{avisoLeche}</Alert>}
 
+      {/* ---------------- LECHE ---------------- */}
+      <Card className="mb-4 border-success">
+        <Card.Header className="d-flex flex-wrap justify-content-between align-items-center gap-2">
+          <div>
+            <strong>Leche recibida de los productores</strong>
+            <div className="text-muted small">
+              Se mide en litros y aparece sola en cuanto se cargan los litros en «Registro diario de leche».
+            </div>
+          </div>
+          <div className="d-flex flex-wrap align-items-end gap-2">
+            <div>
+              <Form.Label className="small text-muted mb-1">Desde</Form.Label>
+              <Form.Control
+                type="date"
+                size="sm"
+                value={desde}
+                max={hasta || undefined}
+                onChange={(e) => setDesde(e.target.value)}
+              />
+            </div>
+            <div>
+              <Form.Label className="small text-muted mb-1">Hasta</Form.Label>
+              <Form.Control
+                type="date"
+                size="sm"
+                value={hasta}
+                min={desde || undefined}
+                onChange={(e) => setHasta(e.target.value)}
+              />
+            </div>
+            <Button size="sm" variant="outline-success" onClick={() => cargarTodo()}>
+              Ver
+            </Button>
+          </div>
+        </Card.Header>
+
+        <Card.Body>
+          {!leche ? (
+            <p className="text-muted mb-0">Todavía no hay datos de leche que mostrar.</p>
+          ) : (
+            <>
+              <div className="d-flex flex-wrap gap-3">
+                {leche.tipos.map((t) => (
+                  <TarjetaLeche
+                    key={t.clave}
+                    titulo={t.nombre.replace('Leche — ', '')}
+                    cantidad={t.recibido_rango ?? t.recibido_total}
+                    unidad={t.unidad_medida}
+                    pie={`${aNumero(t.recibido_total, 0)} ${t.unidad_medida} en total histórico`}
+                  />
+                ))}
+              </div>
+
+              <div className="d-flex flex-wrap gap-4 mt-3 pt-3 border-top small">
+                <div>
+                  <span className="text-muted">Recibido en el rango: </span>
+                  <strong>{conUnidad(leche.recibido_rango ?? leche.recibido_total, leche.unidad_medida)}</strong>
+                </div>
+                <div>
+                  <span className="text-muted">Usado en producción (histórico): </span>
+                  <strong>{conUnidad(leche.usada_produccion_total, leche.unidad_medida)}</strong>
+                </div>
+                <div>
+                  <span className="text-muted">Queda disponible: </span>
+                  <strong>{conUnidad(leche.disponible_total, leche.unidad_medida)}</strong>
+                </div>
+                {leche.ultima_carga && (
+                  <div className="ms-auto text-muted">Última carga: {formatoCorto(leche.ultima_carga)}</div>
+                )}
+              </div>
+
+              <div className="text-muted small mt-2">
+                Los lotes de producción anotan los litros que usaron sin separar si eran buenos, ácidos o bajos en
+                grasa. Por eso lo disponible se calcula sobre el total, no sobre cada tipo por separado.
+              </div>
+            </>
+          )}
+        </Card.Body>
+      </Card>
+
+      {/* ---------------- ALERTAS ---------------- */}
       {enAlerta.length > 0 && (
-        <Alert variant="warning" className="d-flex flex-wrap align-items-center gap-2">
-          <strong className="me-1">Stock bajo:</strong>
+        <Alert variant="warning" className="d-flex flex-wrap gap-3 align-items-center">
+          <strong>Hay que reponer:</strong>
           {enAlerta.map((i) => (
-            <Badge key={i.id} bg="dark" className="fw-normal">
-              {i.nombre} — {i.stock_actual} {i.unidad_medida}
-            </Badge>
+            <span key={i.id}>
+              {i.nombre} — quedan {conUnidad(i.stock_actual, i.unidad_medida)}
+            </span>
           ))}
         </Alert>
       )}
 
-      <Tabs activeKey={pestana} onSelect={(k) => setPestana(k || 'kardex')} className="mb-3">
-        {/* ---------- Kardex ---------- */}
-        <Tab eventKey="kardex" title="Kardex">
-          <Card className="mb-3">
-            <Card.Body className="d-flex flex-wrap gap-4 align-items-center">
-              <div style={{ minWidth: 260 }}>
-                <Form.Label className="small text-muted mb-1">Insumo</Form.Label>
-                <Form.Select value={insumoId} onChange={(e) => setInsumoId(e.target.value)}>
-                  <option value="">Seleccione un insumo</option>
-                  {insumos
-                    .filter((i) => i.activo)
-                    .map((i) => (
-                      <option key={i.id} value={i.id}>
-                        {i.nombre}
-                      </option>
-                    ))}
-                </Form.Select>
-              </div>
-
-              {insumo && (
-                <>
-                  <div>
-                    <div className="small text-muted mb-1">Stock actual</div>
-                    <div className="fs-4 fw-bold lh-1">
-                      {insumo.stock_actual} <span className="fs-6 fw-normal text-muted">{insumo.unidad_medida}</span>
-                    </div>
-                  </div>
-                  {!vacio(insumo.stock_minimo) && (
-                    <div>
-                      <div className="small text-muted mb-1">Stock mínimo</div>
-                      <div className="fw-semibold">
-                        {insumo.stock_minimo} {insumo.unidad_medida}
-                      </div>
-                    </div>
-                  )}
-                  {stockBajo(insumo) && <Badge bg="danger">Stock bajo</Badge>}
-                  {insumo.proveedor && (
-                    <div>
-                      <div className="small text-muted mb-1">Proveedor</div>
-                      <div>{insumo.proveedor}</div>
-                    </div>
-                  )}
-                </>
-              )}
-            </Card.Body>
-
-            {insumo && (
-              <Card.Footer className="d-flex justify-content-end gap-2 flex-wrap">
-                <Button variant="outline-success" onClick={() => abrirModalMovimiento('entrada')}>
-                  <span className="btn-icon-plus">+</span>Registrar entrada
-                </Button>
-                <Button variant="outline-danger" onClick={() => abrirModalMovimiento('salida')}>
-                  Registrar salida
-                </Button>
-              </Card.Footer>
-            )}
-          </Card>
-
-          {!insumoId ? (
-            <Alert variant="light" className="border text-muted">
-              Seleccione un insumo para ver su kardex.
-            </Alert>
-          ) : cargandoMovimientos ? (
-            <LoadingSpinner mensaje="Cargando kardex..." />
-          ) : (
-            <Card>
-              <Card.Header className="d-flex justify-content-between align-items-center flex-wrap gap-2">
-                <span>Movimientos de {insumo?.nombre}</span>
-                {movimientos.length > 0 && (
-                  <Button size="sm" variant="outline-secondary" onClick={anularUltimoMovimiento} disabled={anulando}>
-                    {anulando ? 'Anulando...' : 'Anular último movimiento'}
-                  </Button>
-                )}
-              </Card.Header>
-              <Table hover responsive className="mb-0 align-middle">
-                <thead>
-                  <tr>
-                    <th>Fecha</th>
-                    <th>Tipo</th>
-                    <th className="text-end">Cantidad</th>
-                    <th className="text-end">Precio unitario</th>
-                    <th className="text-end">Stock resultante</th>
-                    <th>Descripción</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {movimientos.map((m) => (
-                    <tr key={m.id}>
-                      <td className="text-muted">{formatoCorto(m.fecha)}</td>
-                      <td>
-                        <Badge bg={m.tipo === 'entrada' ? 'success' : 'secondary'}>
-                          {m.tipo === 'entrada' ? 'Entrada' : 'Salida'}
-                        </Badge>
-                      </td>
-                      <td className="text-end">
-                        {m.cantidad} {insumo?.unidad_medida}
-                      </td>
-                      <td className="text-end">
-                        {m.precio_unitario ? formatearMontoEnMoneda(m.precio_unitario, m.moneda) : '—'}
-                      </td>
-                      <td className="text-end fw-semibold">
-                        {m.stock_resultante} {insumo?.unidad_medida}
-                      </td>
-                      <td className="text-muted">{m.descripcion || '—'}</td>
-                    </tr>
-                  ))}
-                  {movimientos.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="text-center text-muted py-4">
-                        Todavía no hay movimientos. Registre la primera entrada.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </Table>
-            </Card>
-          )}
-        </Tab>
-
-        {/* ---------- Catálogo ---------- */}
-        <Tab eventKey="catalogo" title="Catálogo de insumos">
-          <div className="d-flex flex-wrap gap-2 align-items-center mb-3">
+      {/* ---------------- PRODUCTOS ---------------- */}
+      <Card>
+        <Card.Header className="d-flex flex-wrap justify-content-between align-items-center gap-2">
+          <div>
+            <strong>Productos de la planta</strong>
+            <div className="text-muted small">Sal, cuajo, empaques, materiales y todo lo que se compra.</div>
+          </div>
+          <div className="d-flex flex-wrap align-items-center gap-2">
             <Form.Control
-              style={{ maxWidth: 280 }}
-              placeholder="Buscar insumo por nombre"
+              type="search"
+              size="sm"
+              placeholder="Buscar producto..."
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
+              style={{ maxWidth: 220 }}
             />
             <Form.Check
               type="switch"
-              id="ver-insumos-inactivos"
-              label="Ver inactivos"
+              id="ver-archivados"
+              label="Ver archivados"
               checked={verInactivos}
               onChange={(e) => setVerInactivos(e.target.checked)}
             />
-            <span className="text-muted small ms-auto">{insumosVisibles.length} en pantalla</span>
-            <Button variant="success" onClick={abrirNuevoInsumo}>
-              <span className="btn-icon-plus">+</span>Nuevo insumo
+            <Button variant="success" size="sm" onClick={abrirNuevoInsumo}>
+              Nuevo producto
             </Button>
           </div>
+        </Card.Header>
 
-          <Table hover responsive bordered className="bg-white align-middle">
-            <thead>
-              <tr>
-                <th>Nombre</th>
-                <th>Unidad</th>
-                <th className="text-end">Stock actual</th>
-                <th className="text-end">Stock mínimo</th>
-                <th className="text-end">Precio referencia</th>
-                <th>Proveedor</th>
-                <th>Estado</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {insumosVisibles.map((i) => (
-                <tr key={i.id}>
-                  <td className="fw-semibold">{i.nombre}</td>
-                  <td>{i.unidad_medida}</td>
-                  <td className="text-end">
-                    <span className={stockBajo(i) ? 'text-danger fw-semibold' : ''}>{i.stock_actual}</span>
-                  </td>
-                  <td className="text-end text-muted">{vacio(i.stock_minimo) ? '—' : i.stock_minimo}</td>
-                  <td className="text-end">
-                    {vacio(i.precio_unitario_referencia) ? (
-                      <span className="text-muted">—</span>
-                    ) : (
-                      formatearMontoEnMoneda(i.precio_unitario_referencia, i.moneda_referencia || 'BS')
-                    )}
-                  </td>
-                  <td>{i.proveedor || <span className="text-muted">—</span>}</td>
+        <Table hover responsive className="mb-0 align-middle">
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th>Se mide en</th>
+              <th className="text-end">Existencia</th>
+              <th className="text-end">Avisar cuando baje de</th>
+              <th>Precio de referencia</th>
+              <th className="text-end">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {insumosVisibles.map((i) => {
+              const bajo = stockBajo(i);
+              const elegido = String(i.id) === String(insumoId);
+              return (
+                <tr
+                  key={i.id}
+                  className={elegido ? 'table-active' : undefined}
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => setInsumoId(elegido ? '' : String(i.id))}
+                >
                   <td>
-                    <Badge bg={i.activo ? 'success' : 'secondary'}>{i.activo ? 'Activo' : 'Inactivo'}</Badge>
-                    {i.activo && stockBajo(i) && (
-                      <Badge bg="danger" className="ms-1">
-                        Stock bajo
+                    <span className="fw-semibold">{i.nombre}</span>
+                    {!i.activo && (
+                      <Badge bg="secondary" className="ms-2">
+                        Archivado
+                      </Badge>
+                    )}
+                    {i.proveedor && <div className="text-muted small">{i.proveedor}</div>}
+                  </td>
+                  <td>{i.unidad_medida}</td>
+                  <td className={`text-end fw-semibold ${bajo ? 'text-danger' : ''}`}>
+                    {aNumero(i.stock_actual, 0)}
+                    {bajo && (
+                      <Badge bg="danger" className="ms-2">
+                        Bajo
                       </Badge>
                     )}
                   </td>
-                  <td className="text-end text-nowrap">
-                    <Button size="sm" variant="outline-secondary" className="me-2" onClick={() => abrirEditarInsumo(i)}>
-                      Editar
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant={i.activo ? 'outline-danger' : 'outline-success'}
-                      onClick={() => cambiarEstadoInsumo(i)}
-                    >
-                      {i.activo ? 'Desactivar' : 'Reactivar'}
-                    </Button>
+                  <td className="text-end text-muted">
+                    {i.stock_minimo === null || i.stock_minimo === undefined ? 'Sin aviso' : aNumero(i.stock_minimo, 0)}
+                  </td>
+                  <td className="text-muted">
+                    {i.precio_unitario_referencia === null || i.precio_unitario_referencia === undefined
+                      ? '—'
+                      : `${formatearMontoEnMoneda(i.precio_unitario_referencia, i.moneda_referencia || 'BS')} / ${i.unidad_medida}`}
+                  </td>
+                  <td className="text-end" onClick={(e) => e.stopPropagation()}>
+                    <div className="d-flex gap-2 justify-content-end flex-wrap">
+                      <Button size="sm" variant="outline-success" onClick={() => abrirMovimiento(i, 'entrada')}>
+                        Compra
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline-primary"
+                        onClick={() => abrirMovimiento(i, 'salida')}
+                        disabled={aNumero(i.stock_actual) <= 0}
+                      >
+                        Consumo
+                      </Button>
+                      <Button size="sm" variant="outline-secondary" onClick={() => abrirEditarInsumo(i)}>
+                        Editar
+                      </Button>
+                      <Button size="sm" variant="outline-danger" onClick={() => cambiarEstadoInsumo(i)}>
+                        {i.activo ? 'Archivar' : 'Reactivar'}
+                      </Button>
+                    </div>
                   </td>
                 </tr>
-              ))}
-              {insumosVisibles.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="text-center text-muted py-4">
-                    {insumos.length === 0
-                      ? 'Todavía no hay insumos. Registre el primero para empezar a llevar el stock.'
-                      : 'Ningún insumo coincide con el filtro.'}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </Table>
-        </Tab>
-      </Tabs>
+              );
+            })}
+            {insumosVisibles.length === 0 && (
+              <tr>
+                <td colSpan={6} className="text-center text-muted py-4">
+                  {busqueda
+                    ? `Ningún producto coincide con «${busqueda}».`
+                    : 'Todavía no hay productos cargados. Empiece con «Nuevo producto».'}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </Table>
 
-      {/* ---------- Modal: catálogo ---------- */}
+        {insumosVisibles.length > 0 && (
+          <Card.Footer className="text-muted small">
+            Toque un producto para ver sus entradas y salidas.
+          </Card.Footer>
+        )}
+      </Card>
+
+      {/* ---------------- MOVIMIENTOS DEL PRODUCTO ELEGIDO ---------------- */}
+      {insumo && (
+        <Card className="mt-4">
+          <Card.Header className="d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+              <strong>Entradas y salidas de {insumo.nombre}</strong>
+              <div className="text-muted small">
+                Existencia actual: {conUnidad(insumo.stock_actual, insumo.unidad_medida)}
+              </div>
+            </div>
+            <div className="d-flex gap-2">
+              {movimientos.length > 0 && (
+                <Button size="sm" variant="outline-danger" onClick={anularUltimoMovimiento} disabled={anulando}>
+                  {anulando ? 'Deshaciendo...' : 'Deshacer el último'}
+                </Button>
+              )}
+              <Button size="sm" variant="link" className="p-0" onClick={() => setInsumoId('')}>
+                Cerrar
+              </Button>
+            </div>
+          </Card.Header>
+
+          {cargandoMovimientos ? (
+            <div className="p-3">
+              <LoadingSpinner mensaje="Cargando movimientos..." />
+            </div>
+          ) : (
+            <Table responsive className="mb-0 align-middle">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Qué pasó</th>
+                  <th className="text-end">Cantidad</th>
+                  <th className="text-end">Precio por {insumo.unidad_medida}</th>
+                  <th className="text-end">Costo total</th>
+                  <th>Nota</th>
+                </tr>
+              </thead>
+              <tbody>
+                {movimientos.map((m) => {
+                  const entrada = m.tipo === 'entrada';
+                  const precio = m.precio_unitario;
+                  return (
+                    <tr key={m.id}>
+                      <td className="text-muted">{formatoCorto(m.fecha)}</td>
+                      <td>
+                        <Badge bg={entrada ? 'success' : 'primary'}>{entrada ? 'Compra' : 'Consumo'}</Badge>
+                      </td>
+                      <td className={`text-end fw-semibold ${entrada ? 'text-success' : 'text-primary'}`}>
+                        {entrada ? '+' : '−'}
+                        {conUnidad(m.cantidad, insumo.unidad_medida)}
+                      </td>
+                      <td className="text-end text-muted">
+                        {precio === null || precio === undefined
+                          ? '—'
+                          : formatearMontoEnMoneda(precio, m.moneda || 'BS')}
+                      </td>
+                      <td className="text-end">
+                        {precio === null || precio === undefined
+                          ? '—'
+                          : formatearMontoEnMoneda(aNumero(precio) * aNumero(m.cantidad), m.moneda || 'BS')}
+                      </td>
+                      <td className="text-muted small">{m.descripcion || '—'}</td>
+                    </tr>
+                  );
+                })}
+                {movimientos.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="text-center text-muted py-4">
+                      Este producto todavía no tiene movimientos. Registre la primera compra para cargarle existencia.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </Table>
+          )}
+        </Card>
+      )}
+
+      {/* ---------------- MODAL: producto ---------------- */}
       <Modal show={mostrarModalInsumo} onHide={() => setMostrarModalInsumo(false)} centered>
         <Form onSubmit={guardarInsumo}>
           <Modal.Header closeButton>
-            <Modal.Title>{editandoId ? 'Editar insumo' : 'Nuevo insumo'}</Modal.Title>
+            <Modal.Title>{editandoId ? 'Editar producto' : 'Nuevo producto'}</Modal.Title>
           </Modal.Header>
           <Modal.Body>
             {errorFormInsumo && <Alert variant="danger">{errorFormInsumo}</Alert>}
@@ -518,27 +666,30 @@ const Insumos = () => {
             <Form.Group className="mb-3">
               <Form.Label>Nombre</Form.Label>
               <Form.Control
+                autoFocus
                 value={formInsumo.nombre}
                 onChange={(e) => setFormInsumo({ ...formInsumo, nombre: e.target.value })}
-                placeholder="Ej: Sal, Cuajo, Envases 500g"
-                required
+                placeholder="Sal, cuajo, bolsas de empaque..."
               />
             </Form.Group>
 
             <Form.Group className="mb-3">
-              <Form.Label>Unidad de medida</Form.Label>
-              <Form.Control
+              <Form.Label>¿En qué se mide?</Form.Label>
+              <Form.Select
                 value={formInsumo.unidad_medida}
                 onChange={(e) => setFormInsumo({ ...formInsumo, unidad_medida: e.target.value })}
-                placeholder="kg, L, unidades..."
-                list="unidades-insumo-sugeridas"
-                required
-              />
-              <datalist id="unidades-insumo-sugeridas">
-                {UNIDADES_SUGERIDAS.map((u) => (
-                  <option key={u} value={u} />
+              >
+                <option value="">Elija la unidad</option>
+                {UNIDADES.map((u) => (
+                  <option key={u.codigo} value={u.codigo}>
+                    {u.etiqueta}
+                  </option>
                 ))}
-              </datalist>
+              </Form.Select>
+              <Form.Text className="text-muted">
+                Elija bien desde el principio: todas las compras y consumos de este producto se van a contar en esta
+                unidad. Cambiarla después no convierte lo que ya está cargado.
+              </Form.Text>
             </Form.Group>
 
             <Form.Group className="mb-3">
@@ -547,11 +698,11 @@ const Insumos = () => {
                 <Form.Select
                   value={formInsumo.moneda_referencia}
                   onChange={(e) => setFormInsumo({ ...formInsumo, moneda_referencia: e.target.value })}
-                  style={{ maxWidth: 190 }}
+                  style={{ maxWidth: 130 }}
                 >
                   {OPCIONES_MONEDA.map((op) => (
                     <option key={op.codigo} value={op.codigo}>
-                      {op.etiqueta}
+                      {op.codigo}
                     </option>
                   ))}
                 </Form.Select>
@@ -563,14 +714,15 @@ const Insumos = () => {
                   onChange={(e) => setFormInsumo({ ...formInsumo, precio_unitario_referencia: e.target.value })}
                   placeholder="0.00"
                 />
+                <InputGroup.Text>por {formInsumo.unidad_medida || 'unidad'}</InputGroup.Text>
               </InputGroup>
               <Form.Text className="text-muted">
-                Solo informativo. El precio real de cada compra se guarda en su propio movimiento del kardex.
+                Solo para tener una idea del costo. El precio real de cada compra se anota en su propio movimiento.
               </Form.Text>
             </Form.Group>
 
             <Form.Group className="mb-3">
-              <Form.Label>Stock mínimo (alerta de reposición, opcional)</Form.Label>
+              <Form.Label>Avisar cuando baje de (opcional)</Form.Label>
               <InputGroup>
                 <Form.Control
                   type="number"
@@ -578,10 +730,11 @@ const Insumos = () => {
                   step="0.01"
                   value={formInsumo.stock_minimo}
                   onChange={(e) => setFormInsumo({ ...formInsumo, stock_minimo: e.target.value })}
-                  placeholder="0.00"
+                  placeholder="0"
                 />
-                <InputGroup.Text>{formInsumo.unidad_medida || 'unid.'}</InputGroup.Text>
+                <InputGroup.Text>{formInsumo.unidad_medida || 'unidad'}</InputGroup.Text>
               </InputGroup>
+              <Form.Text className="text-muted">Al llegar a esta cantidad, el producto sale marcado en rojo.</Form.Text>
             </Form.Group>
 
             <Form.Group>
@@ -589,6 +742,7 @@ const Insumos = () => {
               <Form.Control
                 value={formInsumo.proveedor}
                 onChange={(e) => setFormInsumo({ ...formInsumo, proveedor: e.target.value })}
+                placeholder="A quién se le compra"
               />
             </Form.Group>
           </Modal.Body>
@@ -603,50 +757,53 @@ const Insumos = () => {
         </Form>
       </Modal>
 
-      {/* ---------- Modal: movimiento de kardex ---------- */}
+      {/* ---------------- MODAL: compra / consumo ---------------- */}
       <Modal show={mostrarModalMovimiento} onHide={() => setMostrarModalMovimiento(false)} centered>
         <Form onSubmit={guardarMovimiento}>
           <Modal.Header closeButton>
             <Modal.Title>
-              {formMovimiento.tipo === 'entrada' ? 'Registrar entrada' : 'Registrar salida'}
+              {tipoEsEntrada ? 'Registrar compra' : 'Registrar consumo'}
               {insumo ? ` — ${insumo.nombre}` : ''}
             </Modal.Title>
           </Modal.Header>
           <Modal.Body>
             {errorFormMovimiento && <Alert variant="danger">{errorFormMovimiento}</Alert>}
 
-            <Alert variant="light" className="border py-2 small mb-3">
-              Stock actual: <strong>{insumo?.stock_actual} {insumo?.unidad_medida}</strong>
-            </Alert>
+            <p className="text-muted small">
+              {tipoEsEntrada
+                ? 'Una compra suma existencia. Anote lo que llegó y lo que se pagó por unidad.'
+                : 'Un consumo resta existencia: lo que se usó en producción, se dañó o se perdió.'}
+              {insumo && ` Ahora hay ${conUnidad(insumo.stock_actual, insumo.unidad_medida)}.`}
+            </p>
 
             <Form.Group className="mb-3">
               <Form.Label>Cantidad</Form.Label>
               <InputGroup>
                 <Form.Control
+                  autoFocus
                   type="number"
                   min="0"
                   step="0.01"
                   value={formMovimiento.cantidad}
                   onChange={(e) => setFormMovimiento({ ...formMovimiento, cantidad: e.target.value })}
-                  autoFocus
-                  required
+                  placeholder="0"
                 />
-                <InputGroup.Text>{insumo?.unidad_medida}</InputGroup.Text>
+                <InputGroup.Text>{unidadForm || 'unidad'}</InputGroup.Text>
               </InputGroup>
             </Form.Group>
 
-            {formMovimiento.tipo === 'entrada' && (
+            {tipoEsEntrada && (
               <Form.Group className="mb-3">
-                <Form.Label>Precio unitario pagado</Form.Label>
+                <Form.Label>Precio por {unidadForm || 'unidad'}</Form.Label>
                 <InputGroup>
                   <Form.Select
                     value={formMovimiento.moneda}
                     onChange={(e) => setFormMovimiento({ ...formMovimiento, moneda: e.target.value })}
-                    style={{ maxWidth: 190 }}
+                    style={{ maxWidth: 130 }}
                   >
                     {OPCIONES_MONEDA.map((op) => (
                       <option key={op.codigo} value={op.codigo}>
-                        {op.etiqueta}
+                        {op.codigo}
                       </option>
                     ))}
                   </Form.Select>
@@ -659,6 +816,15 @@ const Insumos = () => {
                     placeholder="0.00"
                   />
                 </InputGroup>
+                {!vacio(formMovimiento.cantidad) && !vacio(formMovimiento.precio_unitario) && (
+                  <Form.Text className="text-muted">
+                    Costo total:{' '}
+                    {formatearMontoEnMoneda(
+                      aNumero(formMovimiento.cantidad) * aNumero(formMovimiento.precio_unitario),
+                      formMovimiento.moneda
+                    )}
+                  </Form.Text>
+                )}
               </Form.Group>
             )}
 
@@ -672,15 +838,11 @@ const Insumos = () => {
             </Form.Group>
 
             <Form.Group>
-              <Form.Label>Descripción (opcional)</Form.Label>
+              <Form.Label>Nota (opcional)</Form.Label>
               <Form.Control
-                as="textarea"
-                rows={2}
                 value={formMovimiento.descripcion}
                 onChange={(e) => setFormMovimiento({ ...formMovimiento, descripcion: e.target.value })}
-                placeholder={
-                  formMovimiento.tipo === 'entrada' ? 'Ej: Compra a proveedor X' : 'Ej: Consumo en producción, merma...'
-                }
+                placeholder={tipoEsEntrada ? 'Número de factura, proveedor...' : 'Para qué se usó'}
               />
             </Form.Group>
           </Modal.Body>
@@ -688,12 +850,8 @@ const Insumos = () => {
             <Button variant="light" onClick={() => setMostrarModalMovimiento(false)}>
               Cancelar
             </Button>
-            <Button
-              variant={formMovimiento.tipo === 'entrada' ? 'success' : 'danger'}
-              type="submit"
-              disabled={guardandoMovimiento}
-            >
-              {guardandoMovimiento ? 'Guardando...' : 'Registrar'}
+            <Button variant="success" type="submit" disabled={guardandoMovimiento}>
+              {guardandoMovimiento ? 'Guardando...' : tipoEsEntrada ? 'Registrar compra' : 'Registrar consumo'}
             </Button>
           </Modal.Footer>
         </Form>
