@@ -4,7 +4,7 @@ import * as nominaApi from '../../api/nomina.api';
 import * as productoresApi from '../../api/productores.api';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { desempacar, formatoCorto, hoy, vacio } from '../../utils/fechas';
-import { MONEDAS, METODOS_PAGO, detalleError, monto } from './nominaComun';
+import { MONEDAS, METODOS_PAGO, detalleError, monto } from '../nomina/nominaComun';
 
 const prestamoVacio = {
   beneficiario_tipo: 'productor',

@@ -3,7 +3,7 @@ import { Table, Button, Modal, Form, Alert, Badge, InputGroup, Card } from 'reac
 import * as nominaApi from '../../api/nomina.api';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { desempacar, formatoCorto, hoy, vacio } from '../../utils/fechas';
-import { MONEDAS, METODOS_PAGO, FRECUENCIAS, detalleError, monto, montosPorMoneda, periodoSugerido } from './nominaComun';
+import { MONEDAS, METODOS_PAGO, FRECUENCIAS, detalleError, monto, montosPorMoneda, periodoSugerido } from '../nomina/nominaComun';
 
 const empleadoVacio = {
   nombre: '',
