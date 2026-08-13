@@ -10,6 +10,7 @@ import Ruteros from '../pages/ruteros/Ruteros';
 import Insumos from '../pages/insumos/Insumos';
 import Produccion from '../pages/produccion/Produccion';
 import CuartoFrio from '../pages/cuartoFrio/CuartoFrio';
+import Nomina from '../pages/nomina/Nomina';
 
 // Módulos fuera de servicio. Los archivos siguen en el repo; si hay que
 // reactivar alguno, se descomenta su import y su <Route>.
@@ -20,9 +21,7 @@ import CuartoFrio from '../pages/cuartoFrio/CuartoFrio';
 // import Recibidos from '../pages/recibidos/Recibidos';
 // import LotesProduccion from '../pages/produccion/LotesProduccion';
 // import Productos from '../pages/productos/Productos';
-// import CuartoFrio from '../pages/cuartoFrio/CuartoFrio';
 // import Proveedores from '../pages/proveedores/Proveedores';
-// import Devoluciones from '../pages/devoluciones/Devoluciones';
 
 // Envuelve cada página con el layout general (sidebar + navbar) y la
 // protección de sesión, para no repetirlo en cada <Route>.
@@ -49,11 +48,19 @@ const AppRoutes = () => {
       <Route path="/insumos" element={conLayout(Insumos)} />
       <Route path="/produccion" element={conLayout(Produccion)} />
       <Route path="/cuarto-frio" element={conLayout(CuartoFrio)} />
+      {/* Empleados, compras, préstamos y libro de caja: son cuatro
+          pestañas dentro de la misma pantalla. */}
+      <Route path="/pagos" element={conLayout(Nomina)} />
 
       {/* Enlaces viejos que la gente puede tener guardados */}
       <Route path="/transportadores" element={<Navigate to="/ruteros" replace />} />
       <Route path="/semanas-pago" element={<Navigate to={INICIO} replace />} />
       <Route path="/pagos-productores" element={<Navigate to={INICIO} replace />} />
+      {/* Las devoluciones viven dentro de Cuarto frío, y los pagos
+          quedaron todos bajo /pagos. */}
+      <Route path="/devoluciones" element={<Navigate to="/cuarto-frio" replace />} />
+      <Route path="/nomina" element={<Navigate to="/pagos" replace />} />
+      <Route path="/caja" element={<Navigate to="/pagos" replace />} />
 
       <Route path="*" element={<Navigate to={INICIO} replace />} />
     </Routes>
