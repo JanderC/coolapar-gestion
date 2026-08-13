@@ -18,8 +18,16 @@ export const guardarHojaRutero = (data) => axiosClient.post(`${BASE}/hoja`, data
 
 export const registrarPagoRutero = (data) => axiosClient.post(`${BASE}/hoja/pago`, data).then((r) => r.data);
 
-export const historialRutero = (rutero_id) =>
-  axiosClient.get(`${BASE}/historial`, { params: { rutero_id } }).then((r) => r.data);
+// Hoja de SOLO LECTURA: no crea ni ajusta semanas, a diferencia de
+// obtenerHojaRutero. Es la que se usa para consultar e imprimir.
+// Acepta { rutero_id, semana_id } o { rutero_id, fecha_inicio, fecha_fin }.
+export const hojaConsultaRutero = (params) =>
+  axiosClient.get(`${BASE}/hoja-consulta`, { params }).then((r) => r.data);
+
+// filtros: { estado_pago: 'pagado' | 'pendiente', fecha_inicio, fecha_fin, limite }
+// Devuelve { data: [...semanas], resumen: {...} }
+export const historialRutero = (rutero_id, filtros = {}) =>
+  axiosClient.get(`${BASE}/historial`, { params: { rutero_id, ...filtros } }).then((r) => r.data);
 
 export const listarPagosRuteros = (filtros = {}) =>
   axiosClient.get(`${BASE}/pagos`, { params: filtros }).then((r) => r.data);

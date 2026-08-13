@@ -11,6 +11,8 @@ const OPCIONES_MONEDA = [
   { codigo: 'USD', etiqueta: '$ — Dólares' },
 ];
 
+const LOGO_URL = 'https://coolapar-gestion.vercel.app/coolapar-logo.png';
+
 const formVacio = { nombre: '', telefono: '', precio_litro: '', moneda: 'COP' };
 
 const Ruteros = () => {
@@ -35,6 +37,10 @@ const Ruteros = () => {
   const [precioLitro, setPrecioLitro] = useState('');
   const [moneda, setMoneda] = useState('COP');
   const [historial, setHistorial] = useState([]);
+  const [resumenHistorial, setResumenHistorial] = useState(null);
+  const [filtroPago, setFiltroPago] = useState('');
+  const [semanasMarcadas, setSemanasMarcadas] = useState([]);
+  const [imprimiendo, setImprimiendo] = useState(false);
   const [cargandoHoja, setCargandoHoja] = useState(false);
   const [guardando, setGuardando] = useState(false);
 
@@ -109,13 +115,31 @@ const Ruteros = () => {
   }, [cargarHoja]);
 
   const cargarHistorial = useCallback(async () => {
-    if (!ruteroId) return setHistorial([]);
+    if (!ruteroId) {
+      setHistorial([]);
+      setResumenHistorial(null);
+      return;
+    }
     try {
-      setHistorial(desempacar(await ruterosApi.historialRutero(ruteroId)) || []);
+      // La respuesta trae el arreglo en data y el resumen al lado, así
+      // que no se puede desempacar y ya.
+      const respuesta = await ruterosApi.historialRutero(ruteroId, filtroPago ? { estado_pago: filtroPago } : {});
+      setHistorial(respuesta?.data || []);
+      setResumenHistorial(respuesta?.resumen || null);
+      setSemanasMarcadas([]);
     } catch {
       setHistorial([]);
+      setResumenHistorial(null);
     }
-  }, [ruteroId]);
+  }, [ruteroId, filtroPago]);
+
+  const alternarSemana = (id) =>
+    setSemanasMarcadas((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  const todasMarcadas = historial.length > 0 && historial.every((s) => semanasMarcadas.includes(s.id));
+
+  const alternarTodasSemanas = () =>
+    setSemanasMarcadas(todasMarcadas ? [] : historial.map((s) => s.id));
 
   useEffect(() => {
     cargarHistorial();
@@ -209,6 +233,203 @@ const Ruteros = () => {
       setError(err.response?.data?.message || 'No se pudo registrar el pago.');
     } finally {
       setGuardando(false);
+    }
+  };
+
+  // ---------- Impresión ----------
+  // Mismo formato y mismo logo que el registro diario de leche, para que
+  // las hojas que se archivan se vean iguales vengan de donde vengan.
+
+  const construirBloqueRutero = (datosHoja) => {
+    const r = datosHoja.rutero;
+    const diasHoja = datosHoja.dias || [];
+    const precio = Number(datosHoja.precio_litro || 0);
+    const monedaHoja = datosHoja.moneda || 'COP';
+
+    const filas = diasHoja
+      .map((d) => {
+        const litros = d.litros === null || d.litros === undefined ? null : Number(d.litros);
+        const sobrante = Number(d.sobrante || 0);
+        const faltante = Number(d.faltante || 0);
+        return `
+          <tr>
+            <td>${d.dia}</td>
+            <td>${formatoCorto(d.fecha)}</td>
+            <td class="num">${litros !== null ? litros : '—'}</td>
+            <td class="num">${sobrante > 0 ? sobrante : '—'}</td>
+            <td class="num">${faltante > 0 ? faltante : '—'}</td>
+            <td class="num">${litros !== null ? formatearMontoEnMoneda(litros * precio, monedaHoja) : '—'}</td>
+            <td>${d.descripcion || ''}</td>
+          </tr>`;
+      })
+      .join('');
+
+    const rango =
+      diasHoja.length > 0
+        ? `${formatoCorto(diasHoja[0].fecha)} a ${formatoCorto(diasHoja[diasHoja.length - 1].fecha)}`
+        : '—';
+
+    const estadoPago = datosHoja.pago
+      ? datosHoja.pago.estado_pago === 'pagado'
+        ? `Pagado el ${formatoCorto(datosHoja.pago.fecha_pago)}`
+        : 'Pago pendiente'
+      : 'Sin pago registrado';
+
+    return `
+  <div class="bloque">
+    <div class="nombre-productor">${r.nombre}</div>
+    <div class="info">
+      <div><strong>Semana:</strong> ${rango}</div>
+      <div><strong>Precio por litro:</strong> ${formatearMontoEnMoneda(precio, monedaHoja)}</div>
+      ${r.telefono ? `<div><strong>Teléfono:</strong> ${r.telefono}</div>` : ''}
+      <div><strong>Estado:</strong> ${estadoPago}</div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Día</th>
+          <th>Fecha</th>
+          <th class="num">Litros</th>
+          <th class="num">Sobrante</th>
+          <th class="num">Faltante</th>
+          <th class="num">Subtotal</th>
+          <th>Observación</th>
+        </tr>
+      </thead>
+      <tbody>${filas}</tbody>
+      <tfoot>
+        <tr>
+          <th colspan="2">Total de la semana</th>
+          <th class="num">${datosHoja.totales.total_litros} L</th>
+          <th class="num">${datosHoja.totales.total_sobrante > 0 ? datosHoja.totales.total_sobrante : '—'}</th>
+          <th class="num">${datosHoja.totales.total_faltante > 0 ? datosHoja.totales.total_faltante : '—'}</th>
+          <th class="num">${formatearMontoEnMoneda(datosHoja.totales.total_pagar, monedaHoja)}</th>
+          <th></th>
+        </tr>
+      </tfoot>
+    </table>
+    <div class="subtotales">
+      <div>Días con leche: <strong>${datosHoja.totales.dias_con_leche}</strong></div>
+      <div>Total a pagar: <strong>${formatearMontoEnMoneda(datosHoja.totales.total_pagar, monedaHoja)}</strong></div>
+    </div>
+    <div class="firmas">
+      <div>Firma del rutero</div>
+      <div>Firma COOLAPAR</div>
+    </div>
+  </div>`;
+  };
+
+  const imprimirDocumento = (bloquesHtml, subtitulo) => {
+    const html = `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Hoja del rutero</title>
+<style>
+  @page { size: letter portrait; margin: 14mm; }
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #212529; margin: 0; }
+  .encabezado { display: flex; align-items: center; gap: 16px; border-bottom: 2px solid #198754; padding-bottom: 12px; margin-bottom: 18px; }
+  .encabezado img { height: 64px; width: auto; }
+  .encabezado h1 { font-size: 20px; margin: 0; color: #198754; }
+  .encabezado p { margin: 2px 0 0; color: #6c757d; font-size: 13px; }
+  .bloque { margin-bottom: 28px; padding-bottom: 18px; border-bottom: 1px dashed #ced4da; break-inside: avoid; }
+  .bloque:last-child { border-bottom: none; }
+  .nombre-productor { font-size: 16px; font-weight: bold; margin-bottom: 6px; }
+  .info { display: flex; flex-wrap: wrap; gap: 4px 24px; font-size: 12px; margin-bottom: 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { border: 1px solid #dee2e6; padding: 5px 7px; text-align: left; }
+  thead th { background: #f1f3f5; }
+  td.num, th.num { text-align: right; }
+  tfoot th { background: #f1f3f5; }
+  .subtotales { display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: 12px; margin-top: 10px; padding-top: 8px; border-top: 1px solid #dee2e6; }
+  .firmas { display: flex; justify-content: space-between; margin-top: 28px; font-size: 12px; }
+  .firmas div { width: 45%; text-align: center; border-top: 1px solid #212529; padding-top: 5px; }
+  .pie { margin-top: 12px; font-size: 11px; color: #6c757d; text-align: right; }
+</style>
+</head>
+<body>
+  <div class="encabezado">
+    <img src="${LOGO_URL}" alt="Coolapar" />
+    <div>
+      <h1>COOLAPAR</h1>
+      <p>Recolección de leche — ruteros${subtitulo ? ` — ${subtitulo}` : ''}</p>
+    </div>
+  </div>
+
+  ${bloquesHtml.join('')}
+
+  <div class="pie">Impreso el ${formatoCorto(hoy())}</div>
+</body>
+</html>`;
+
+    // Se imprime desde un iframe oculto para que no lo bloquee el
+    // bloqueador de ventanas emergentes del navegador.
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
+
+    iframe.onload = () => {
+      // Pequeña espera para que el logo termine de cargar.
+      setTimeout(() => {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+      }, 300);
+    };
+
+    iframe.srcdoc = html;
+    setTimeout(() => {
+      if (document.body.contains(iframe)) document.body.removeChild(iframe);
+    }, 8000);
+  };
+
+  /** Imprime la semana que está abierta en pantalla. */
+  const imprimirHojaActual = async () => {
+    if (!hoja) return;
+    setImprimiendo(true);
+    setError('');
+    try {
+      // Se relee por hoja-consulta para imprimir lo que está guardado,
+      // no lo que se esté tecleando sin guardar.
+      const datos = hoja.semana?.id
+        ? desempacar(await ruterosApi.hojaConsultaRutero({ rutero_id: ruteroId, semana_id: hoja.semana.id }))
+        : hoja;
+      imprimirDocumento([construirBloqueRutero(datos)], rutero?.nombre);
+    } catch (err) {
+      setError(err.response?.data?.message || 'No se pudo preparar la impresión.');
+    } finally {
+      setImprimiendo(false);
+    }
+  };
+
+  /** Imprime una o varias semanas del historial. */
+  const imprimirSemanas = async (ids) => {
+    if (!ids || ids.length === 0) return;
+    setImprimiendo(true);
+    setError('');
+    try {
+      // Se respeta el orden del historial, no el orden en que se marcaron.
+      const ordenados = historial.map((s) => s.id).filter((id) => ids.includes(id));
+
+      const hojas = await Promise.all(
+        ordenados.map((id) =>
+          ruterosApi.hojaConsultaRutero({ rutero_id: ruteroId, semana_id: id }).then(desempacar)
+        )
+      );
+
+      imprimirDocumento(
+        hojas.map((h) => construirBloqueRutero(h)),
+        `${rutero?.nombre} — ${ordenados.length} semana(s)`
+      );
+    } catch (err) {
+      setError(err.response?.data?.message || 'No se pudo preparar la impresión.');
+    } finally {
+      setImprimiendo(false);
     }
   };
 
@@ -482,29 +703,111 @@ const Ruteros = () => {
                 <Button variant="success" onClick={registrarPago} disabled={guardando || totales.litros <= 0}>
                   Registrar pago
                 </Button>
+                <Button
+                  variant="outline-success"
+                  onClick={imprimirHojaActual}
+                  disabled={imprimiendo || totales.litros <= 0}
+                >
+                  {imprimiendo ? 'Preparando...' : 'Imprimir hoja'}
+                </Button>
               </Card.Footer>
             </Card>
           ) : null}
 
-          {historial.length > 0 && (
-            <Card className="mt-4">
-              <Card.Header>Semanas anteriores de {rutero?.nombre}</Card.Header>
-              <Table hover responsive className="mb-0 align-middle">
-                <thead>
-                  <tr>
-                    <th>Días</th>
-                    <th>Litros</th>
-                    <th>Total</th>
-                    <th>Pago</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {historial.map((s) => (
-                    <tr key={s.id} className={String(s.id) === String(hoja?.semana?.id) ? 'table-active' : ''}>
-                      <td className="fw-semibold">{s.etiqueta}</td>
-                      <td>{s.total_litros}</td>
-                      <td>{formatearMontoEnMoneda(s.total_pagar, s.moneda)}</td>
+          <Card className="mt-4">
+            <Card.Header className="d-flex flex-wrap justify-content-between align-items-center gap-2">
+              <div>
+                <strong>Semanas de {rutero?.nombre}</strong>
+                {resumenHistorial && (
+                  <div className="text-muted small">
+                    {resumenHistorial.semanas_pagadas} de {resumenHistorial.semanas} pagadas
+                    {resumenHistorial.pagado_por_moneda?.length > 0 && (
+                      <>
+                        {' · '}
+                        {resumenHistorial.pagado_por_moneda
+                          .map((t) => `${formatearMontoEnMoneda(t.total_pagar, t.moneda)} pagados`)
+                          .join(' · ')}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="d-flex flex-wrap align-items-center gap-2">
+                <Form.Select
+                  size="sm"
+                  value={filtroPago}
+                  onChange={(e) => setFiltroPago(e.target.value)}
+                  style={{ maxWidth: 190 }}
+                >
+                  <option value="">Todas las semanas</option>
+                  <option value="pagado">Solo las pagadas</option>
+                  <option value="pendiente">Solo las pendientes</option>
+                </Form.Select>
+                <Button
+                  size="sm"
+                  variant="success"
+                  onClick={() => imprimirSemanas(semanasMarcadas)}
+                  disabled={semanasMarcadas.length === 0 || imprimiendo}
+                >
+                  {imprimiendo ? 'Preparando...' : `Imprimir (${semanasMarcadas.length})`}
+                </Button>
+              </div>
+            </Card.Header>
+
+            <Table hover responsive className="mb-0 align-middle">
+              <thead>
+                <tr>
+                  <th style={{ width: 36 }}>
+                    <Form.Check
+                      type="checkbox"
+                      checked={todasMarcadas}
+                      onChange={alternarTodasSemanas}
+                      aria-label="Marcar todas las semanas"
+                    />
+                  </th>
+                  <th>Semana</th>
+                  <th>Días</th>
+                  <th className="text-end">Litros</th>
+                  <th className="text-end">Total</th>
+                  <th>Pago</th>
+                  <th className="text-end">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {historial.map((s) => {
+                  const marcada = semanasMarcadas.includes(s.id);
+                  return (
+                    <tr
+                      key={s.id}
+                      className={
+                        String(s.id) === String(hoja?.semana?.id)
+                          ? 'table-active'
+                          : marcada
+                          ? 'table-success'
+                          : ''
+                      }
+                    >
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <Form.Check
+                          type="checkbox"
+                          checked={marcada}
+                          onChange={() => alternarSemana(s.id)}
+                          aria-label={`Marcar la semana del ${s.fecha_inicio}`}
+                        />
+                      </td>
+                      <td>
+                        {/* Las fechas son lo que distingue una semana de
+                            otra: "lunes a domingo" solo, no dice cuál. */}
+                        <span className="fw-semibold">
+                          {formatoCorto(s.fecha_inicio)} — {formatoCorto(s.fecha_fin)}
+                        </span>
+                        {s.fecha_pago && (
+                          <div className="text-muted small">Pagada el {formatoCorto(s.fecha_pago)}</div>
+                        )}
+                      </td>
+                      <td className="text-muted small">{s.etiqueta}</td>
+                      <td className="text-end">{s.total_litros}</td>
+                      <td className="text-end">{formatearMontoEnMoneda(s.total_pagar, s.moneda)}</td>
                       <td>
                         {s.estado_pago === 'pagado' ? (
                           <Badge bg="success">Pagado</Badge>
@@ -515,16 +818,38 @@ const Ruteros = () => {
                         )}
                       </td>
                       <td className="text-end">
-                        <Button size="sm" variant="outline-secondary" onClick={() => setSemanaId(s.id)}>
-                          Abrir
-                        </Button>
+                        <div className="d-flex gap-2 justify-content-end">
+                          <Button
+                            size="sm"
+                            variant="outline-success"
+                            onClick={() => imprimirSemanas([s.id])}
+                            disabled={imprimiendo}
+                          >
+                            Imprimir
+                          </Button>
+                          <Button size="sm" variant="outline-secondary" onClick={() => setSemanaId(s.id)}>
+                            Abrir
+                          </Button>
+                        </div>
                       </td>
                     </tr>
-                  ))}
-                </tbody>
-              </Table>
-            </Card>
-          )}
+                  );
+                })}
+                {historial.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="text-center text-muted py-4">
+                      {filtroPago === 'pagado'
+                        ? 'Todavía no hay semanas pagadas a este rutero.'
+                        : filtroPago === 'pendiente'
+                        ? 'No hay semanas pendientes de pago.'
+                        : 'Este rutero no tiene semanas registradas.'}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </Table>
+          </Card>
+
         </Tab>
 
         <Tab eventKey="lista" title="Ruteros registrados">
