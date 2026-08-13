@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { Nav } from 'react-bootstrap';
-import Empleados from './Empleados';
-import Compras from './Compras';
-import Prestamos from './Prestamos';
-import LibroCaja from './LibroCaja';
+import Empleados from '../empleados/Empleados';
+import Compras from '../compras/Compras';
+import Prestamos from '../prestamos/Prestamos';
+import LibroCaja from '../libroCaja/LibroCaja';
 
 // Los tres sectores van separados a propósito: son plata que se mueve por
 // motivos distintos y confundirlos sale caro. Sobre todo estos dos, que se
