@@ -24,6 +24,11 @@ export const registrarPagoRutero = (data) => axiosClient.post(`${BASE}/hoja/pago
 export const hojaConsultaRutero = (params) =>
   axiosClient.get(`${BASE}/hoja-consulta`, { params }).then((r) => r.data);
 
+// Todos los ruteros que trajeron leche en un rango, con su litraje día
+// por día. Solo lectura: no crea ni ajusta semanas.
+export const resumenSemanaRuteros = (params) =>
+  axiosClient.get(`${BASE}/resumen-semana`, { params }).then((r) => r.data);
+
 // filtros: { estado_pago: 'pagado' | 'pendiente', fecha_inicio, fecha_fin, limite }
 // Devuelve { data: [...semanas], resumen: {...} }
 export const historialRutero = (rutero_id, filtros = {}) =>

@@ -11,6 +11,21 @@ const OPCIONES_MONEDA = [
   { codigo: 'USD', etiqueta: '$ — Dólares' },
 ];
 
+/** Suma (o resta) días a una fecha yyyy-mm-dd, sin líos de zona horaria. */
+const sumarDiasTexto = (texto, dias) => {
+  const [anio, mes, dia] = String(texto).split('-').map(Number);
+  const fecha = new Date(Date.UTC(anio, mes - 1, dia));
+  fecha.setUTCDate(fecha.getUTCDate() + dias);
+  return fecha.toISOString().slice(0, 10);
+};
+
+/** Lunes de la semana a la que pertenece la fecha dada. */
+const lunesDe = (texto) => {
+  const [anio, mes, dia] = String(texto).split('-').map(Number);
+  const diaSemanaNumero = new Date(Date.UTC(anio, mes - 1, dia)).getUTCDay(); // 0 = domingo
+  return sumarDiasTexto(texto, diaSemanaNumero === 0 ? -6 : 1 - diaSemanaNumero);
+};
+
 const LOGO_URL = 'https://coolapar-gestion.vercel.app/coolapar-logo.png';
 
 const formVacio = { nombre: '', telefono: '', precio_litro: '', moneda: 'COP' };
@@ -433,6 +448,97 @@ const Ruteros = () => {
     }
   };
 
+  // ---------- Consultar semana: todos los ruteros del rango ----------
+  // Va al revés que la hoja: en lugar de partir de un rutero y ver su
+  // semana, parte de la semana y trae a todos los que trajeron leche.
+
+  const [mostrarSemana, setMostrarSemana] = useState(false);
+  const [semanaDesde, setSemanaDesde] = useState(() => lunesDe(hoy()));
+  const [semanaHasta, setSemanaHasta] = useState(() => sumarDiasTexto(lunesDe(hoy()), 6));
+  const [resumen, setResumen] = useState(null);
+  const [rangoResumen, setRangoResumen] = useState(null);
+  const [cargandoResumen, setCargandoResumen] = useState(false);
+  const [errorResumen, setErrorResumen] = useState('');
+  const [seleccionResumen, setSeleccionResumen] = useState([]);
+  const [imprimiendoResumen, setImprimiendoResumen] = useState(false);
+
+  const consultarSemana = async (desde = semanaDesde, hasta = semanaHasta) => {
+    if (!desde || !hasta) return setErrorResumen('Indique la fecha de inicio y la de cierre.');
+    if (desde > hasta) return setErrorResumen('La fecha de inicio debe ser anterior a la de cierre.');
+    if (typeof ruterosApi.resumenSemanaRuteros !== 'function') {
+      return setErrorResumen(
+        "Falta agregar resumenSemanaRuteros() en src/api/ruteros.api.js: export const resumenSemanaRuteros = (params) => axiosClient.get(`${BASE}/resumen-semana`, { params }).then((r) => r.data);"
+      );
+    }
+
+    setCargandoResumen(true);
+    setErrorResumen('');
+    try {
+      const datos = desempacar(await ruterosApi.resumenSemanaRuteros({ fecha_inicio: desde, fecha_fin: hasta }));
+      setResumen(datos);
+      setRangoResumen({ inicio: desde, fin: hasta });
+      setSeleccionResumen([]);
+    } catch (err) {
+      setResumen(null);
+      setErrorResumen(err.response?.data?.message || 'No se pudo cargar la semana.');
+    } finally {
+      setCargandoResumen(false);
+    }
+  };
+
+  const abrirConsultaSemana = () => {
+    const abriendo = !mostrarSemana;
+    setMostrarSemana(abriendo);
+    if (abriendo && !resumen && !cargandoResumen) consultarSemana();
+  };
+
+  const moverSemana = (pasos) => {
+    const nuevoDesde = sumarDiasTexto(semanaDesde, pasos * 7);
+    const nuevoHasta = sumarDiasTexto(nuevoDesde, 6);
+    setSemanaDesde(nuevoDesde);
+    setSemanaHasta(nuevoHasta);
+    consultarSemana(nuevoDesde, nuevoHasta);
+  };
+
+  const alternarResumen = (id) => {
+    const clave = String(id);
+    setSeleccionResumen((prev) => (prev.includes(clave) ? prev.filter((x) => x !== clave) : [...prev, clave]));
+  };
+
+  const filasResumen = resumen?.ruteros || [];
+  const todosResumenMarcados =
+    filasResumen.length > 0 && filasResumen.every((t) => seleccionResumen.includes(String(t.rutero_id)));
+
+  const alternarTodosResumen = () =>
+    setSeleccionResumen(todosResumenMarcados ? [] : filasResumen.map((t) => String(t.rutero_id)));
+
+  /** Imprime la hoja de cada rutero marcado, con el rango en pantalla. */
+  const imprimirResumen = async () => {
+    if (seleccionResumen.length === 0 || !rangoResumen) return;
+    setImprimiendoResumen(true);
+    setErrorResumen('');
+    try {
+      const ids = filasResumen.map((t) => String(t.rutero_id)).filter((id) => seleccionResumen.includes(id));
+
+      const hojas = await Promise.all(
+        ids.map((id) =>
+          ruterosApi
+            .hojaConsultaRutero({ rutero_id: id, fecha_inicio: rangoResumen.inicio, fecha_fin: rangoResumen.fin })
+            .then(desempacar)
+        )
+      );
+
+      imprimirDocumento(
+        hojas.map((h) => construirBloqueRutero(h)),
+        `Semana del ${formatoCorto(rangoResumen.inicio)} al ${formatoCorto(rangoResumen.fin)}`
+      );
+    } catch (err) {
+      setErrorResumen(err.response?.data?.message || 'No se pudo preparar la impresión.');
+    } finally {
+      setImprimiendoResumen(false);
+    }
+  };
+
   // ---------- CRUD de ruteros ----------
   const abrirNuevo = () => {
     setEditandoId(null);
@@ -511,9 +617,14 @@ const Ruteros = () => {
             que se le cancela.
           </p>
         </div>
-        <Button variant="success" onClick={abrirNuevo}>
-          <span className="btn-icon-plus">+</span>Nuevo rutero
-        </Button>
+        <div className="d-flex gap-2">
+          <Button variant={mostrarSemana ? 'success' : 'outline-success'} onClick={abrirConsultaSemana}>
+            {mostrarSemana ? 'Ocultar semana' : 'Consultar semana'}
+          </Button>
+          <Button variant="success" onClick={abrirNuevo}>
+            <span className="btn-icon-plus">+</span>Nuevo rutero
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -525,6 +636,190 @@ const Ruteros = () => {
         <Alert variant="success" onClose={() => setAviso('')} dismissible>
           {aviso}
         </Alert>
+      )}
+
+      {mostrarSemana && (
+        <Card className="mb-4 border-success">
+          <Card.Header className="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+              <strong>Consultar semana</strong>
+              <div className="text-muted small">
+                Todos los ruteros que trajeron leche en el rango, día por día.
+              </div>
+            </div>
+            <Button size="sm" variant="link" className="p-0" onClick={() => setMostrarSemana(false)}>
+              Ocultar
+            </Button>
+          </Card.Header>
+
+          <Card.Body className="d-flex flex-wrap gap-3 align-items-end">
+            <div style={{ minWidth: 170 }}>
+              <Form.Label className="small text-muted mb-1">Desde</Form.Label>
+              <Form.Control
+                type="date"
+                value={semanaDesde}
+                max={semanaHasta || undefined}
+                onChange={(e) => setSemanaDesde(e.target.value)}
+              />
+            </div>
+            <div style={{ minWidth: 170 }}>
+              <Form.Label className="small text-muted mb-1">Hasta</Form.Label>
+              <Form.Control
+                type="date"
+                value={semanaHasta}
+                min={semanaDesde || undefined}
+                onChange={(e) => setSemanaHasta(e.target.value)}
+              />
+            </div>
+            <div className="d-flex flex-wrap gap-2">
+              <Button variant="success" onClick={() => consultarSemana()} disabled={cargandoResumen}>
+                {cargandoResumen ? 'Consultando...' : 'Consultar'}
+              </Button>
+              <Button variant="outline-secondary" onClick={() => moverSemana(-1)} disabled={cargandoResumen}>
+                ← Semana anterior
+              </Button>
+              <Button variant="outline-secondary" onClick={() => moverSemana(1)} disabled={cargandoResumen}>
+                Semana siguiente →
+              </Button>
+            </div>
+          </Card.Body>
+
+          {errorResumen && (
+            <Alert variant="danger" className="mx-3 mb-3" onClose={() => setErrorResumen('')} dismissible>
+              {errorResumen}
+            </Alert>
+          )}
+
+          {cargandoResumen ? (
+            <div className="p-3">
+              <LoadingSpinner mensaje="Cargando la semana..." />
+            </div>
+          ) : resumen && filasResumen.length === 0 ? (
+            <Alert variant="light" className="border mx-3 mb-3 text-muted">
+              Ningún rutero trajo leche entre el {formatoCorto(resumen.rango.fecha_inicio)} y el{' '}
+              {formatoCorto(resumen.rango.fecha_fin)}.
+            </Alert>
+          ) : resumen ? (
+            <>
+              <div className="px-3 pb-2 d-flex flex-wrap justify-content-between align-items-center gap-3">
+                <div>
+                  <div className="text-muted small">
+                    Semana del {formatoCorto(resumen.rango.fecha_inicio)} al {formatoCorto(resumen.rango.fecha_fin)}
+                  </div>
+                  <div className="fs-5">
+                    <strong>{resumen.totales.ruteros}</strong> ruteros ·{' '}
+                    <strong>{resumen.totales.total_litros}</strong> litros
+                    {resumen.totales.total_faltante > 0 && (
+                      <span className="text-danger fs-6"> · {resumen.totales.total_faltante} L de faltante</span>
+                    )}
+                  </div>
+                </div>
+                <div className="text-end">
+                  {(resumen.totales_por_moneda || []).map((t) => (
+                    <div key={t.moneda} className="fs-5">
+                      <span className="text-muted small me-2">Total {t.moneda}</span>
+                      <strong>{formatearMontoEnMoneda(t.total_pagar, t.moneda)}</strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="px-3 pb-2 text-end">
+                <Button
+                  variant="success"
+                  size="sm"
+                  onClick={imprimirResumen}
+                  disabled={seleccionResumen.length === 0 || imprimiendoResumen}
+                >
+                  {imprimiendoResumen ? 'Preparando...' : `Imprimir seleccionados (${seleccionResumen.length})`}
+                </Button>
+              </div>
+
+              <Table hover responsive className="mb-0 align-middle small">
+                <thead>
+                  <tr>
+                    <th style={{ width: 36 }}>
+                      <Form.Check
+                        type="checkbox"
+                        checked={todosResumenMarcados}
+                        onChange={alternarTodosResumen}
+                        aria-label="Marcar todos"
+                      />
+                    </th>
+                    <th style={{ minWidth: 150 }}>Rutero</th>
+                    {(resumen.rango.columnas || []).map((c) => (
+                      <th key={c.fecha} className="text-end">
+                        {c.dia}
+                        <div className="text-muted fw-normal">{formatoCorto(c.fecha)}</div>
+                      </th>
+                    ))}
+                    <th className="text-end">Total litros</th>
+                    <th className="text-end">Precio/L</th>
+                    <th className="text-end">Total a pagar</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filasResumen.map((t) => {
+                    const marcado = seleccionResumen.includes(String(t.rutero_id));
+                    return (
+                      <tr
+                        key={t.rutero_id}
+                        className={marcado ? 'table-success' : undefined}
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => alternarResumen(t.rutero_id)}
+                      >
+                        <td onClick={(e) => e.stopPropagation()}>
+                          <Form.Check
+                            type="checkbox"
+                            checked={marcado}
+                            onChange={() => alternarResumen(t.rutero_id)}
+                            aria-label={`Marcar a ${t.nombre}`}
+                          />
+                        </td>
+                        <td className="fw-semibold">{t.nombre}</td>
+                        {t.dias.map((d) => (
+                          <td key={d.fecha} className="text-end">
+                            {d.litros > 0 ? d.litros : <span className="text-muted">—</span>}
+                            {(d.sobrante > 0 || d.faltante > 0) && (
+                              <div style={{ fontSize: '.7rem' }}>
+                                {d.sobrante > 0 && <span className="text-success">+{d.sobrante}</span>}
+                                {d.sobrante > 0 && d.faltante > 0 && ' '}
+                                {d.faltante > 0 && <span className="text-danger">−{d.faltante}</span>}
+                              </div>
+                            )}
+                          </td>
+                        ))}
+                        <td className="text-end fw-semibold">{t.total_litros}</td>
+                        <td className="text-end">{formatearMontoEnMoneda(t.precio_litro, t.moneda)}</td>
+                        <td className="text-end fw-semibold">
+                          {formatearMontoEnMoneda(t.total_pagar, t.moneda)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot className="table-light">
+                  <tr>
+                    <th />
+                    <th>Litros por día</th>
+                    {(resumen.totales_por_dia || []).map((t) => (
+                      <th key={t.fecha} className="text-end">
+                        {t.total_litros > 0 ? t.total_litros : '—'}
+                      </th>
+                    ))}
+                    <th className="text-end">{resumen.totales.total_litros}</th>
+                    <th />
+                    <th className="text-end">
+                      {(resumen.totales_por_moneda || []).map((t) => (
+                        <div key={t.moneda}>{formatearMontoEnMoneda(t.total_pagar, t.moneda)}</div>
+                      ))}
+                    </th>
+                  </tr>
+                </tfoot>
+              </Table>
+            </>
+          ) : null}
+        </Card>
       )}
 
       <Tabs activeKey={pestana} onSelect={(k) => setPestana(k || 'hoja')} className="mb-3">
