@@ -60,7 +60,11 @@ const Prestamos = () => {
 
   const cargarProductores = useCallback(async () => {
     try {
-      setProductores(desempacar(await productoresApi.listarProductores({ activo: 'true' })) || []);
+      // listarProductores recibe el valor suelto, no un objeto de params.
+      // Se traen todos y se filtran aquí: así el selector no depende de
+      // cómo esté armada la firma de esa función.
+      const lista = desempacar(await productoresApi.listarProductores()) || [];
+      setProductores(lista.filter((p) => p.activo));
     } catch {
       setProductores([]);
     }
