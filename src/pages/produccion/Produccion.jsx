@@ -36,20 +36,19 @@ const Produccion = () => {
   const [form, setForm] = useState(formVacio);
   const [guardando, setGuardando] = useState(false);
   const [errorForm, setErrorForm] = useState('');
-
-  // Detalle opcional: aportes de litros (productores/rutero) y piezas pesadas.
-  // Si hay al menos una fila cargada, el total se calcula solo sumando y el
-  // campo "manual" queda de lado — igual que hace el backend.
   const [aportesLitros, setAportesLitros] = useState([]);
   const [litrosManual, setLitrosManual] = useState('');
   const [pesosPiezas, setPesosPiezas] = useState([]);
   const [kilosManual, setKilosManual] = useState('');
 
   // ---------- Insumos gastados en el lote ----------
-  // La leche va aparte: no es un insumo del inventario, entra por el
-  // registro diario de los productores. Aquí solo se le pone precio.
+
   const [insumosDisponibles, setInsumosDisponibles] = useState([]);
   const [lineasInsumos, setLineasInsumos] = useState([]);
+
+  // Existencia del cuarto frío, para poder fundir queso viejo en un lote.
+  const [existenciasFrio, setExistenciasFrio] = useState([]);
+  const [lineasReproceso, setLineasReproceso] = useState([]);
   const [precioLeche, setPrecioLeche] = useState('');
   const [monedaLeche, setMonedaLeche] = useState('BS');
   const [formulaSugerida, setFormulaSugerida] = useState(null);
@@ -80,10 +79,15 @@ const Produccion = () => {
     }
   }, []);
 
-  // Lista de productores/ruteros para el selector de "origen" de cada
-  // aporte. Si alguna de las dos llamadas falla, la otra igual se usa —
-  // no bloquea el formulario, simplemente ese grupo queda vacío.
-  // Catalogo de insumos, para el selector de "que se gasto".
+  const cargarCuartoFrio = useCallback(async () => {
+    try {
+      const datos = desempacar(await cuartoFrioApi.obtenerExistencias());
+      setExistenciasFrio(datos?.productos || []);
+    } catch {
+      setExistenciasFrio([]);
+    }
+  }, []);
+
   const cargarInsumos = useCallback(async () => {
     try {
       setInsumosDisponibles(desempacar(await insumosApi.listarInsumos()) || []);
@@ -150,17 +154,6 @@ const Produccion = () => {
   };
 
   // ---------- Quesos del cuarto frío que se vuelven a fundir ----------
-  const [existenciasFrio, setExistenciasFrio] = useState([]);
-  const [lineasReproceso, setLineasReproceso] = useState([]);
-
-  const cargarCuartoFrio = useCallback(async () => {
-    try {
-      const datos = desempacar(await cuartoFrioApi.obtenerExistencias());
-      setExistenciasFrio(datos?.productos || []);
-    } catch {
-      setExistenciasFrio([]);
-    }
-  }, []);
 
   const agregarLineaReproceso = () =>
     setLineasReproceso((prev) => [...prev, { id: nuevoId(), producto: '', kilos: '', piezas: '' }]);
