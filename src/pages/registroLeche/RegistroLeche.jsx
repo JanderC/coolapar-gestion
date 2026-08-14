@@ -612,14 +612,14 @@ const RegistroLeche = () => {
   // Envuelve uno o más bloques de productor en el documento completo con
   // el logo arriba, y dispara la impresión con un iframe oculto (para no
   // toparse con el bloqueador de ventanas emergentes del navegador).
-  const imprimirDocumento = (bloquesHtml, subtitulo) => {
+  const imprimirDocumento = (bloquesHtml, subtitulo, opciones = {}) => {
     const html = `<!doctype html>
 <html>
 <head>
 <meta charset="utf-8" />
 <title>Registro diario de leche</title>
 <style>
-  @page { size: letter portrait; margin: 14mm; }
+  @page { size: letter ${opciones.horizontal ? 'landscape' : 'portrait'}; margin: ${opciones.horizontal ? '10mm' : '14mm'}; }
   * { box-sizing: border-box; }
   body { font-family: Arial, Helvetica, sans-serif; color: #212529; margin: 0; }
   .encabezado { display: flex; align-items: center; gap: 16px; border-bottom: 2px solid #198754; padding-bottom: 12px; margin-bottom: 18px; }
@@ -639,6 +639,13 @@ const RegistroLeche = () => {
   .firmas { display: flex; justify-content: space-between; margin-top: 28px; font-size: 12px; }
   .firmas div { width: 45%; text-align: center; border-top: 1px solid #212529; padding-top: 5px; }
   .pie { margin-top: 12px; font-size: 11px; color: #6c757d; text-align: right; }
+  /* Cuadro resumen de la semana */
+  .cuadro table { font-size: 10px; }
+  .cuadro th, .cuadro td { padding: 4px 5px; }
+  .cuadro .nombre { font-weight: bold; white-space: nowrap; }
+  .cuadro .menor { font-size: 8px; color: #6c757d; display: block; }
+  .cuadro tfoot th { background: #e9ecef; }
+  .resumen-monedas { display: flex; flex-wrap: wrap; gap: 6px 24px; font-size: 12px; margin-top: 10px; padding-top: 8px; border-top: 2px solid #198754; }
 </style>
 </head>
 <body>
@@ -884,6 +891,105 @@ const RegistroLeche = () => {
       setImprimiendoResumen(false);
     }
   };
+
+  /**
+   * Hoja resumen de la semana: el mismo cuadro que se ve en pantalla,
+   * una fila por productor y una columna por día.
+   *
+   * Es otro impreso distinto al de las hojas individuales: aquí no hay
+   * firmas ni detalle de subtotales, es la vista de conjunto para
+   * cuadrar la semana de un vistazo.
+   */
+  const construirCuadroSemana = () => {
+    const columnas = resumen?.rango?.columnas || [];
+    const filas = resumen?.productores || [];
+
+    const celdaDia = (d) => {
+      const extras = [];
+      if (d.litros_acidos > 0) extras.push(`${d.litros_acidos} ác.`);
+      if (d.litros_bajo_grasa > 0) extras.push(`${d.litros_bajo_grasa} b.g.`);
+      return `
+            <td class="num">
+              ${d.litros > 0 ? d.litros : '—'}
+              ${extras.length ? `<span class="menor">${extras.join(' · ')}</span>` : ''}
+            </td>`;
+    };
+
+    const cuerpo = filas
+      .map((p) => {
+        const extras = [];
+        if (p.total_litros_acidos > 0) extras.push(`${p.total_litros_acidos} ác.`);
+        if (p.total_litros_bajo_grasa > 0) extras.push(`${p.total_litros_bajo_grasa} b.g.`);
+        return `
+          <tr>
+            <td class="nombre">
+              ${p.nombre}
+              ${p.semana_fecha_fin ? `<span class="menor">cierra ${formatoCorto(p.semana_fecha_fin)}</span>` : ''}
+            </td>
+            ${p.dias.map(celdaDia).join('')}
+            <td class="num"><strong>${p.total_litros}</strong>${extras.length ? `<span class="menor">${extras.join(' · ')}</span>` : ''}</td>
+            <td class="num">${formatearMontoEnMoneda(p.precio_litro, p.moneda)}</td>
+            <td class="num"><strong>${formatearMontoEnMoneda(p.total_pagar, p.moneda)}</strong></td>
+          </tr>`;
+      })
+      .join('');
+
+    const totalesDia = (resumen?.totales_por_dia || [])
+      .map((t) => `<th class="num">${t.total_litros > 0 ? t.total_litros : '—'}</th>`)
+      .join('');
+
+    const monedas = (resumen?.totales_por_moneda || [])
+      .map(
+        (t) =>
+          `<div><strong>Total ${t.moneda}:</strong> ${formatearMontoEnMoneda(t.total_pagar, t.moneda)} — ${t.productores} productor(es), ${t.total_litros} L</div>`
+      )
+      .join('');
+
+    return `
+  <div class="bloque cuadro">
+    <div class="info">
+      <div><strong>Semana:</strong> ${formatoCorto(resumen.rango.fecha_inicio)} al ${formatoCorto(resumen.rango.fecha_fin)}</div>
+      <div><strong>Productores:</strong> ${resumen.totales.productores}</div>
+      <div><strong>Litros recibidos:</strong> ${resumen.totales.total_litros} L</div>
+      ${resumen.totales.total_litros_acidos > 0 ? `<div><strong>De los cuales ácidos:</strong> ${resumen.totales.total_litros_acidos} L</div>` : ''}
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Productor</th>
+          ${columnas.map((c) => `<th class="num">${c.dia}<span class="menor">${formatoCorto(c.fecha)}</span></th>`).join('')}
+          <th class="num">Total litros</th>
+          <th class="num">Precio/L</th>
+          <th class="num">Total a pagar</th>
+        </tr>
+      </thead>
+      <tbody>${cuerpo}</tbody>
+      <tfoot>
+        <tr>
+          <th>Litros por día</th>
+          ${totalesDia}
+          <th class="num">${resumen.totales.total_litros}</th>
+          <th></th>
+          <th></th>
+        </tr>
+      </tfoot>
+    </table>
+    <div class="resumen-monedas">${monedas}</div>
+  </div>`;
+  };
+
+  /** Imprime el cuadro completo, tal como se ve al consultar la semana. */
+  const imprimirCuadroSemana = () => {
+    if (!resumen || (resumen.productores || []).length === 0) return;
+    // Va en horizontal: con siete columnas de días más los totales, en
+    // vertical queda ilegible.
+    imprimirDocumento(
+      [construirCuadroSemana()],
+      `Cuadro de la semana del ${formatoCorto(resumen.rango.fecha_inicio)} al ${formatoCorto(resumen.rango.fecha_fin)}`,
+      { horizontal: true }
+    );
+  };
+
 
   // ---------- Impresión: elegir semana y productores ----------
   const [mostrarModalImprimir, setMostrarModalImprimir] = useState(false);
@@ -1165,13 +1271,16 @@ const RegistroLeche = () => {
                         {formatearMontoEnMoneda(t.total_pagar, t.moneda)}
                       </span>
                     ))}
+                  <Button size="sm" variant="outline-success" onClick={imprimirCuadroSemana}>
+                    Imprimir cuadro
+                  </Button>
                   <Button
                     variant="success"
                     size="sm"
                     onClick={imprimirResumen}
                     disabled={seleccionResumen.length === 0 || imprimiendoResumen}
                   >
-                    {imprimiendoResumen ? 'Preparando...' : `Imprimir seleccionados (${seleccionResumen.length})`}
+                    {imprimiendoResumen ? 'Preparando...' : `Imprimir hojas (${seleccionResumen.length})`}
                   </Button>
                 </div>
               </div>
