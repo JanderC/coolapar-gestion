@@ -40,6 +40,9 @@ const formInsumoVacio = {
 
 const formMovimientoVacio = {
   tipo: 'entrada',
+  // Una entrada puede ser una compra (con factura y precio) o una carga
+  // inicial / ajuste (lo que ya estaba en el depósito, sin precio).
+  es_ajuste: false,
   cantidad: '',
   precio_unitario: '',
   moneda: 'BS',
@@ -268,9 +271,15 @@ const Insumos = () => {
   };
 
   // ---------- Entradas y salidas ----------
-  const abrirMovimiento = (i, tipo) => {
+  const abrirMovimiento = (i, tipo, esAjuste = false) => {
     setInsumoId(String(i.id));
-    setFormMovimiento({ ...formMovimientoVacio, tipo, fecha: hoy(), moneda: i.moneda_referencia || 'BS' });
+    setFormMovimiento({
+      ...formMovimientoVacio,
+      tipo,
+      es_ajuste: esAjuste,
+      fecha: hoy(),
+      moneda: i.moneda_referencia || 'BS',
+    });
     setErrorFormMovimiento('');
     setMostrarModalMovimiento(true);
   };
@@ -279,12 +288,17 @@ const Insumos = () => {
     e.preventDefault();
     setErrorFormMovimiento('');
 
+    // Solo una entrada CON precio cuenta como compra; el ajuste no.
+    const esCompra = formMovimiento.tipo === 'entrada' && !formMovimiento.es_ajuste;
+
     const cantidad = Number(formMovimiento.cantidad);
     if (!formMovimiento.cantidad || Number.isNaN(cantidad) || cantidad <= 0) {
       return setErrorFormMovimiento('Indique una cantidad mayor a 0.');
     }
-    if (formMovimiento.tipo === 'entrada' && (vacio(formMovimiento.precio_unitario) || !formMovimiento.moneda)) {
-      return setErrorFormMovimiento('Para una compra hace falta el precio por unidad y la moneda.');
+    if (esCompra && (vacio(formMovimiento.precio_unitario) || !formMovimiento.moneda)) {
+      return setErrorFormMovimiento(
+        'Para una compra hace falta el precio por unidad y la moneda. Si es una carga inicial, cámbielo arriba.'
+      );
     }
     if (formMovimiento.tipo === 'salida' && insumo && cantidad > aNumero(insumo.stock_actual)) {
       return setErrorFormMovimiento(
@@ -294,12 +308,10 @@ const Insumos = () => {
 
     const payload = {
       tipo: formMovimiento.tipo,
+      es_ajuste: formMovimiento.es_ajuste,
       cantidad,
-      precio_unitario:
-        formMovimiento.tipo === 'entrada' && !vacio(formMovimiento.precio_unitario)
-          ? Number(formMovimiento.precio_unitario)
-          : null,
-      moneda: formMovimiento.tipo === 'entrada' ? formMovimiento.moneda : null,
+      precio_unitario: esCompra && !vacio(formMovimiento.precio_unitario) ? Number(formMovimiento.precio_unitario) : null,
+      moneda: esCompra ? formMovimiento.moneda : null,
       fecha: formMovimiento.fecha,
       descripcion: vacio(formMovimiento.descripcion) ? null : formMovimiento.descripcion.trim(),
     };
@@ -308,7 +320,13 @@ const Insumos = () => {
     try {
       await insumosApi.registrarMovimiento(insumoId, payload);
       setMostrarModalMovimiento(false);
-      setAviso(formMovimiento.tipo === 'entrada' ? 'Compra registrada.' : 'Consumo registrado.');
+      setAviso(
+        formMovimiento.tipo === 'salida'
+          ? 'Consumo registrado.'
+          : esCompra
+          ? 'Compra registrada.'
+          : 'Existencia cargada.'
+      );
       await Promise.all([cargarTodo(), cargarMovimientos()]);
     } catch (err) {
       setErrorFormMovimiento(`No se pudo registrar. ${detalleError(err)}`);
@@ -539,6 +557,14 @@ const Insumos = () => {
                       </Button>
                       <Button
                         size="sm"
+                        variant="outline-info"
+                        title="Cargar lo que ya hay en el depósito, sin precio"
+                        onClick={() => abrirMovimiento(i, 'entrada', true)}
+                      >
+                        Cargar existencia
+                      </Button>
+                      <Button
+                        size="sm"
                         variant="outline-primary"
                         onClick={() => abrirMovimiento(i, 'salida')}
                         disabled={aNumero(i.stock_actual) <= 0}
@@ -762,17 +788,38 @@ const Insumos = () => {
         <Form onSubmit={guardarMovimiento}>
           <Modal.Header closeButton>
             <Modal.Title>
-              {tipoEsEntrada ? 'Registrar compra' : 'Registrar consumo'}
+              {!tipoEsEntrada
+                ? 'Registrar consumo'
+                : formMovimiento.es_ajuste
+                ? 'Cargar existencia'
+                : 'Registrar compra'}
               {insumo ? ` — ${insumo.nombre}` : ''}
             </Modal.Title>
           </Modal.Header>
           <Modal.Body>
             {errorFormMovimiento && <Alert variant="danger">{errorFormMovimiento}</Alert>}
 
+            {tipoEsEntrada && (
+              <Form.Group className="mb-3">
+                <Form.Label>¿De dónde viene?</Form.Label>
+                <Form.Select
+                  value={formMovimiento.es_ajuste ? 'ajuste' : 'compra'}
+                  onChange={(e) =>
+                    setFormMovimiento({ ...formMovimiento, es_ajuste: e.target.value === 'ajuste' })
+                  }
+                >
+                  <option value="compra">Compra — llegó y se pagó</option>
+                  <option value="ajuste">Carga inicial o ajuste — ya estaba, sin factura</option>
+                </Form.Select>
+              </Form.Group>
+            )}
+
             <p className="text-muted small">
-              {tipoEsEntrada
-                ? 'Una compra suma existencia. Anote lo que llegó y lo que se pagó por unidad.'
-                : 'Un consumo resta existencia: lo que se usó en producción, se dañó o se perdió.'}
+              {!tipoEsEntrada
+                ? 'Un consumo resta existencia: lo que se usó en producción, se dañó o se perdió.'
+                : formMovimiento.es_ajuste
+                ? 'Suma existencia sin precio. Úselo para cargar lo que ya está en el depósito o para cuadrar contra un conteo físico. No cuenta como compra en la contabilidad.'
+                : 'Una compra suma existencia. Anote lo que llegó y lo que se pagó por unidad.'}
               {insumo && ` Ahora hay ${conUnidad(insumo.stock_actual, insumo.unidad_medida)}.`}
             </p>
 
@@ -792,7 +839,7 @@ const Insumos = () => {
               </InputGroup>
             </Form.Group>
 
-            {tipoEsEntrada && (
+            {tipoEsEntrada && !formMovimiento.es_ajuste && (
               <Form.Group className="mb-3">
                 <Form.Label>Precio por {unidadForm || 'unidad'}</Form.Label>
                 <InputGroup>
@@ -842,7 +889,13 @@ const Insumos = () => {
               <Form.Control
                 value={formMovimiento.descripcion}
                 onChange={(e) => setFormMovimiento({ ...formMovimiento, descripcion: e.target.value })}
-                placeholder={tipoEsEntrada ? 'Número de factura, proveedor...' : 'Para qué se usó'}
+                placeholder={
+                  !tipoEsEntrada
+                    ? 'Para qué se usó'
+                    : formMovimiento.es_ajuste
+                    ? 'Conteo del depósito, saldo anterior...'
+                    : 'Número de factura, proveedor...'
+                }
               />
             </Form.Group>
           </Modal.Body>
@@ -851,7 +904,13 @@ const Insumos = () => {
               Cancelar
             </Button>
             <Button variant="success" type="submit" disabled={guardandoMovimiento}>
-              {guardandoMovimiento ? 'Guardando...' : tipoEsEntrada ? 'Registrar compra' : 'Registrar consumo'}
+              {guardandoMovimiento
+                ? 'Guardando...'
+                : !tipoEsEntrada
+                ? 'Registrar consumo'
+                : formMovimiento.es_ajuste
+                ? 'Cargar existencia'
+                : 'Registrar compra'}
             </Button>
           </Modal.Footer>
         </Form>
