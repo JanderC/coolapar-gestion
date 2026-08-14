@@ -32,6 +32,9 @@ const UNIDADES = [
 const formInsumoVacio = {
   nombre: '',
   unidad_medida: '',
+  // Lo que ya hay en el depósito al dar de alta el producto. Se carga
+  // como ajuste, no como compra: no hay factura que respalde eso.
+  cantidad_inicial: '',
   precio_unitario_referencia: '',
   moneda_referencia: 'BS',
   stock_minimo: '',
@@ -195,6 +198,7 @@ const Insumos = () => {
     setFormInsumo({
       nombre: i.nombre || '',
       unidad_medida: i.unidad_medida || '',
+      cantidad_inicial: '',
       precio_unitario_referencia: i.precio_unitario_referencia ?? '',
       moneda_referencia: i.moneda_referencia || 'BS',
       stock_minimo: i.stock_minimo ?? '',
@@ -221,6 +225,9 @@ const Insumos = () => {
       proveedor: vacio(formInsumo.proveedor) ? null : formInsumo.proveedor.trim(),
     };
 
+    const cantidadInicial = vacio(formInsumo.cantidad_inicial) ? 0 : Number(formInsumo.cantidad_inicial);
+    if (!editandoId && cantidadInicial < 0) return setErrorFormInsumo('La cantidad no puede ser negativa.');
+
     setGuardandoInsumo(true);
     try {
       let creado = null;
@@ -228,23 +235,31 @@ const Insumos = () => {
         await insumosApi.actualizarInsumo(editandoId, payload);
       } else {
         creado = desempacar(await insumosApi.crearInsumo(payload));
+
+        // El producto nace en 0 y la existencia entra como movimiento:
+        // así el stock siempre tiene un historial detrás que lo explica.
+        if (cantidadInicial > 0) {
+          await insumosApi.registrarMovimiento(creado.id, {
+            tipo: 'entrada',
+            es_ajuste: true,
+            cantidad: cantidadInicial,
+            fecha: hoy(),
+            descripcion: 'Existencia inicial',
+          });
+        }
       }
+
       setMostrarModalInsumo(false);
       setAviso(
         editandoId
           ? 'Producto actualizado.'
-          : 'Producto creado. Empieza en 0: registre una compra para cargarle existencia.'
+          : cantidadInicial > 0
+          ? `Producto creado con ${cantidadInicial} ${payload.unidad_medida} de existencia.`
+          : 'Producto creado. Empieza en 0: use «Cargar existencia» o «Compra» cuando corresponda.'
       );
       await cargarTodo();
 
-      // Producto nuevo: queda seleccionado y con el formulario de compra
-      // abierto, que es lo que sigue en la práctica.
-      if (creado) {
-        setInsumoId(String(creado.id));
-        setFormMovimiento({ ...formMovimientoVacio, tipo: 'entrada', fecha: hoy() });
-        setErrorFormMovimiento('');
-        setMostrarModalMovimiento(true);
-      }
+      if (creado) setInsumoId(String(creado.id));
     } catch (err) {
       setErrorFormInsumo(`No se pudo guardar. ${detalleError(err)}`);
     } finally {
@@ -717,6 +732,27 @@ const Insumos = () => {
                 unidad. Cambiarla después no convierte lo que ya está cargado.
               </Form.Text>
             </Form.Group>
+
+            {!editandoId && (
+              <Form.Group className="mb-3">
+                <Form.Label>¿Cuánto hay ahora? (opcional)</Form.Label>
+                <InputGroup>
+                  <Form.Control
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formInsumo.cantidad_inicial}
+                    onChange={(e) => setFormInsumo({ ...formInsumo, cantidad_inicial: e.target.value })}
+                    placeholder="0"
+                  />
+                  <InputGroup.Text>{formInsumo.unidad_medida || 'unidad'}</InputGroup.Text>
+                </InputGroup>
+                <Form.Text className="text-muted">
+                  Lo que ya está en el depósito. Entra como existencia inicial, sin precio: no cuenta como una
+                  compra del mes. Déjelo vacío si el producto arranca en cero.
+                </Form.Text>
+              </Form.Group>
+            )}
 
             <Form.Group className="mb-3">
               <Form.Label>Precio de referencia (opcional)</Form.Label>
