@@ -696,6 +696,8 @@ const RegistroLeche = () => {
   const [busquedaResumen, setBusquedaResumen] = useState('');
   const [seleccionResumen, setSeleccionResumen] = useState([]);
   const [imprimiendoResumen, setImprimiendoResumen] = useState(false);
+  const [ultimaCarga, setUltimaCarga] = useState(null);
+  const [buscandoUltima, setBuscandoUltima] = useState(false);
 
   /** Traduce un fallo de red o de código a algo legible en pantalla. */
   const detalleError = (err) => {
@@ -739,10 +741,44 @@ const RegistroLeche = () => {
     }
   };
 
+  /**
+   * Vuelve a la última semana que se cargó. El operador no siempre
+   * recuerda dónde se quedó, y sin esto termina repitiendo trabajo o
+   * saltándose gente.
+   */
+  const irAUltimaSemana = async ({ consultar = true } = {}) => {
+    if (typeof registroApi.ultimaSemanaCargada !== 'function') {
+      setErrorResumen(
+        "Falta agregar ultimaSemanaCargada() en src/api/registroLeche.api.js: export const ultimaSemanaCargada = () => axiosClient.get(`${BASE}/ultima-semana`).then((r) => r.data);"
+      );
+      return null;
+    }
+
+    setBuscandoUltima(true);
+    try {
+      const datos = desempacar(await registroApi.ultimaSemanaCargada());
+      setUltimaCarga(datos);
+      if (datos && consultar) {
+        setSemanaDesde(datos.fecha_inicio);
+        setSemanaHasta(datos.fecha_fin);
+        await consultarSemana(datos.fecha_inicio, datos.fecha_fin);
+      }
+      return datos;
+    } catch (err) {
+      console.error('ultima-semana:', err);
+      setErrorResumen(`No se pudo buscar la última semana. ${detalleError(err)}`);
+      return null;
+    } finally {
+      setBuscandoUltima(false);
+    }
+  };
+
   const abrirConsultaSemana = () => {
     const abriendo = !mostrarSemana;
     setMostrarSemana(abriendo);
-    if (abriendo && !resumen && !cargandoResumen) consultarSemana();
+    // Al abrir se arranca donde se quedó la última vez, que casi siempre
+    // es la semana que se quiere revisar.
+    if (abriendo && !resumen && !cargandoResumen) irAUltimaSemana();
   };
 
   /** Mueve el rango una semana completa hacia atrás o adelante. */
@@ -1039,6 +1075,13 @@ const RegistroLeche = () => {
               <Button variant="outline-secondary" onClick={() => moverSemana(1)} disabled={cargandoResumen}>
                 Semana siguiente →
               </Button>
+              <Button
+                variant="outline-success"
+                onClick={() => irAUltimaSemana()}
+                disabled={cargandoResumen || buscandoUltima}
+              >
+                {buscandoUltima ? 'Buscando...' : '↻ Última semana cargada'}
+              </Button>
             </div>
           </Card.Body>
 
@@ -1091,6 +1134,17 @@ const RegistroLeche = () => {
                   ))}
                   {(resumen.totales_por_moneda || []).length > 1 && (
                     <div className="text-muted small">Cada moneda se cuadra por separado.</div>
+                  )}
+                  {ultimaCarga && ultimaCarga.fecha_inicio === resumen.rango.fecha_inicio && (
+                    <div className="text-muted small mt-1">
+                      Es la última semana cargada. {ultimaCarga.cantidad_productores} productor(es) con litros
+                      {ultimaCarga.productores_sin_cargar > 0 && (
+                        <>
+                          {' '}y <strong>{ultimaCarga.productores_sin_cargar} sin cargar</strong>
+                        </>
+                      )}
+                      ; el último día con leche fue el {formatoCorto(ultimaCarga.ultima_fecha_con_leche)}.
+                    </div>
                   )}
                 </div>
               </div>
