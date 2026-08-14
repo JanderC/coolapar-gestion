@@ -1001,7 +1001,8 @@ const RegistroLeche = () => {
             <div>
               <strong>Consultar semana</strong>
               <div className="text-muted small">
-                Todos los productores que dejaron leche en el rango, día por día.
+                Los productores cuya semana <strong>empieza</strong> el día que consulte, con su litraje día por día.
+                El que arranca otro día no sale aquí: su semana es otra.
               </div>
             </div>
             <Button size="sm" variant="link" className="p-0" onClick={() => setMostrarSemana(false)}>
@@ -1053,8 +1054,18 @@ const RegistroLeche = () => {
             </div>
           ) : resumen && resumen.productores.length === 0 ? (
             <Alert variant="light" className="border mx-3 mb-3 text-muted">
-              Nadie dejó leche entre el {formatoCorto(resumen.rango.fecha_inicio)} y el{' '}
-              {formatoCorto(resumen.rango.fecha_fin)}. Pruebe con otro rango.
+              {resumen.aviso ? (
+                <>
+                  Ningún productor tiene una semana que empiece el {formatoCorto(resumen.rango.fecha_inicio)}. Pruebe
+                  con el día en que arrancan las semanas, o revise en la hoja de cada productor desde qué día corre
+                  la suya.
+                </>
+              ) : (
+                <>
+                  Nadie dejó leche entre el {formatoCorto(resumen.rango.fecha_inicio)} y el{' '}
+                  {formatoCorto(resumen.rango.fecha_fin)}. Pruebe con otro rango.
+                </>
+              )}
             </Alert>
           ) : resumen ? (
             <>
@@ -1157,6 +1168,11 @@ const RegistroLeche = () => {
                           <span className="d-flex align-items-center gap-2">
                             <Punto color={p.color_identificativo} />
                             <span className="fw-semibold">{p.nombre}</span>
+                            {p.semana_fecha_fin && (
+                              <span className="text-muted" style={{ fontSize: '.75rem' }}>
+                                cierra {formatoCorto(p.semana_fecha_fin)}
+                              </span>
+                            )}
                             {p.monedas_mezcladas && (
                               <Badge bg="warning" text="dark">
                                 Monedas mezcladas
