@@ -5,6 +5,8 @@ import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { desempacar, formatoCorto, hoy, vacio } from '../../utils/fechas';
 import { MONEDAS, METODOS_PAGO, FRECUENCIAS, detalleError, monto, montosPorMoneda, periodoSugerido } from '../nomina/nominaComun';
 
+const LOGO_URL = 'https://coolapar-gestion.vercel.app/coolapar-logo.png';
+
 const empleadoVacio = {
   nombre: '',
   cedula: '',
@@ -300,6 +302,148 @@ const Empleados = () => {
     }
   };
 
+  // ---------- Impresión de recibos ----------
+  // Mismo encabezado que el resto de los impresos del sistema.
+
+  /**
+   * Un recibo, en dos copias sobre la misma hoja: una para el empleado y
+   * otra para la cooperativa, cada una con su firma. Es como se entregan
+   * en papel, y evita imprimir dos veces.
+   */
+  const construirRecibo = (r, copia) => {
+    const empleado = r.Empleado || {};
+    const asignaciones = Number(r.otras_asignaciones || 0);
+    const adelantos = Number(r.total_adelantos || 0);
+    const deducciones = Number(r.otras_deducciones || 0);
+
+    const linea = (etiqueta, valor, clase = '') =>
+      `<tr class="${clase}"><td>${etiqueta}</td><td class="num">${valor}</td></tr>`;
+
+    return `
+  <div class="recibo">
+    <div class="marca">${copia}</div>
+    <div class="titulo">Recibo de pago${r.anulado ? ' — ANULADO' : ''}</div>
+
+    <div class="datos">
+      <div><strong>Empleado:</strong> ${empleado.nombre || `#${r.empleado_id}`}</div>
+      ${empleado.cargo ? `<div><strong>Cargo:</strong> ${empleado.cargo}</div>` : ''}
+      <div><strong>Período:</strong> ${formatoCorto(r.periodo_inicio)} al ${formatoCorto(r.periodo_fin)}</div>
+      <div><strong>Fecha de pago:</strong> ${formatoCorto(r.fecha)}</div>
+      <div><strong>Recibo N°:</strong> ${r.id}</div>
+      ${r.metodo_pago ? `<div><strong>Forma de pago:</strong> ${r.metodo_pago}</div>` : ''}
+      ${r.referencia ? `<div><strong>Referencia:</strong> ${r.referencia}</div>` : ''}
+    </div>
+
+    <table>
+      <tbody>
+        ${linea('Sueldo del período', monto(r.sueldo_base, r.moneda))}
+        ${asignaciones > 0 ? linea('Otras asignaciones', `+ ${monto(asignaciones, r.moneda)}`, 'suma') : ''}
+        ${adelantos > 0 ? linea('Adelantos ya entregados', `− ${monto(adelantos, r.moneda)}`, 'resta') : ''}
+        ${deducciones > 0 ? linea('Otras deducciones', `− ${monto(deducciones, r.moneda)}`, 'resta') : ''}
+      </tbody>
+      <tfoot>
+        <tr><th>Neto recibido</th><th class="num">${monto(r.neto, r.moneda)}</th></tr>
+      </tfoot>
+    </table>
+
+    ${r.notas ? `<div class="nota">${r.notas}</div>` : ''}
+
+    <div class="firmas">
+      <div>${empleado.nombre || 'Recibí conforme'}</div>
+      <div>Por COOLAPAR</div>
+    </div>
+  </div>`;
+  };
+
+  const imprimirRecibos = (lista) => {
+    if (!lista || lista.length === 0) return;
+
+    // Cada recibo va en su hoja, con sus dos copias.
+    const hojas = lista
+      .map(
+        (r) => `
+  <div class="hoja">
+    ${construirRecibo(r, 'Copia del empleado')}
+    <div class="corte"></div>
+    ${construirRecibo(r, 'Copia COOLAPAR')}
+  </div>`
+      )
+      .join('');
+
+    const html = `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Recibos de pago</title>
+<style>
+  @page { size: letter portrait; margin: 12mm; }
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #212529; margin: 0; }
+  .encabezado { display: flex; align-items: center; gap: 16px; border-bottom: 2px solid #198754; padding-bottom: 10px; margin-bottom: 14px; }
+  .encabezado img { height: 56px; width: auto; }
+  .encabezado h1 { font-size: 18px; margin: 0; color: #198754; }
+  .encabezado p { margin: 2px 0 0; color: #6c757d; font-size: 12px; }
+  .hoja { break-after: page; }
+  .hoja:last-child { break-after: auto; }
+  .recibo { position: relative; padding: 12px 0; break-inside: avoid; }
+  .marca { position: absolute; top: 12px; right: 0; font-size: 10px; color: #6c757d; text-transform: uppercase; letter-spacing: .5px; }
+  .titulo { font-size: 15px; font-weight: bold; margin-bottom: 8px; }
+  .datos { display: flex; flex-wrap: wrap; gap: 3px 22px; font-size: 12px; margin-bottom: 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  td, th { border: 1px solid #dee2e6; padding: 5px 8px; text-align: left; }
+  .num { text-align: right; }
+  .suma .num { color: #146c43; }
+  .resta .num { color: #b02a37; }
+  tfoot th { background: #f1f3f5; font-size: 13px; }
+  .nota { font-size: 11px; color: #6c757d; margin-top: 8px; }
+  .firmas { display: flex; justify-content: space-between; margin-top: 34px; font-size: 11px; }
+  .firmas div { width: 45%; text-align: center; border-top: 1px solid #212529; padding-top: 4px; }
+  .corte { border-top: 1px dashed #adb5bd; margin: 18px 0; }
+  .pie { margin-top: 10px; font-size: 10px; color: #6c757d; text-align: right; }
+</style>
+</head>
+<body>
+  <div class="encabezado">
+    <img src="${LOGO_URL}" alt="Coolapar" />
+    <div>
+      <h1>COOLAPAR</h1>
+      <p>Recibos de pago de nómina</p>
+    </div>
+  </div>
+
+  ${hojas}
+
+  <div class="pie">Impreso el ${formatoCorto(hoy())}</div>
+</body>
+</html>`;
+
+    // Iframe oculto: así no lo bloquea el bloqueador de ventanas emergentes.
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
+
+    iframe.onload = () => {
+      // Pequeña espera para que el logo termine de cargar.
+      setTimeout(() => {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+      }, 300);
+    };
+
+    iframe.srcdoc = html;
+    setTimeout(() => {
+      if (document.body.contains(iframe)) document.body.removeChild(iframe);
+    }, 8000);
+  };
+
+  /** Los recibos que se pueden entregar: los anulados no se imprimen. */
+  const recibosImprimibles = recibos.filter((r) => !r.anulado);
+
   if (cargando) return <LoadingSpinner mensaje="Cargando empleados..." />;
 
   return (
@@ -420,11 +564,21 @@ const Empleados = () => {
 
       {/* ---------- Recibos ---------- */}
       <Card>
-        <Card.Header>
-          <strong>Recibos de pago</strong>
-          <div className="text-muted small">
-            Un borrador todavía no movió plata. Al marcarlo pagado, se anota en el libro de caja.
+        <Card.Header className="d-flex flex-wrap justify-content-between align-items-center gap-2">
+          <div>
+            <strong>Recibos de pago</strong>
+            <div className="text-muted small">
+              Un borrador todavía no movió plata. Al marcarlo pagado, se anota en el libro de caja.
+            </div>
           </div>
+          <Button
+            size="sm"
+            variant="outline-success"
+            onClick={() => imprimirRecibos(recibosImprimibles)}
+            disabled={recibosImprimibles.length === 0}
+          >
+            Imprimir todos ({recibosImprimibles.length})
+          </Button>
         </Card.Header>
         <Table hover responsive className="mb-0 align-middle">
           <thead>
@@ -465,12 +619,15 @@ const Empleados = () => {
                 </td>
                 <td className="text-end">
                   {!r.anulado && (
-                    <div className="d-flex gap-2 justify-content-end">
+                    <div className="d-flex gap-2 justify-content-end flex-wrap">
                       {r.estado === 'borrador' && (
                         <Button size="sm" variant="outline-success" onClick={() => pagarRecibo(r)}>
                           Pagar
                         </Button>
                       )}
+                      <Button size="sm" variant="outline-secondary" onClick={() => imprimirRecibos([r])}>
+                        Imprimir
+                      </Button>
                       <Button size="sm" variant="outline-danger" onClick={() => anularRecibo(r)}>
                         Anular
                       </Button>
