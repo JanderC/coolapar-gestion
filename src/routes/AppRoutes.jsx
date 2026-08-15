@@ -11,6 +11,7 @@ import Insumos from '../pages/insumos/Insumos';
 import Produccion from '../pages/produccion/Produccion';
 import CuartoFrio from '../pages/cuartoFrio/CuartoFrio';
 import Nomina from '../pages/nomina/Nomina';
+import Equipos from '../pages/equipos/Equipos';
 
 // Módulos fuera de servicio. Los archivos siguen en el repo; si hay que
 // reactivar alguno, se descomenta su import y su <Route>.
@@ -51,6 +52,8 @@ const AppRoutes = () => {
       {/* Empleados, compras, préstamos y libro de caja: son cuatro
           pestañas dentro de la misma pantalla. */}
       <Route path="/pagos" element={conLayout(Nomina)} />
+      {/* Inventario suelto: no se relaciona con insumos ni con producción. */}
+      <Route path="/equipos" element={conLayout(Equipos)} />
 
       {/* Enlaces viejos que la gente puede tener guardados */}
       <Route path="/transportadores" element={<Navigate to="/ruteros" replace />} />
