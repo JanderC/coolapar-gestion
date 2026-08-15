@@ -1,5 +1,8 @@
 import axiosClient from './axiosClient';
 
+// Inventario completo en una sola llamada: la leche que entro por el
+// registro diario de los productores mas el catalogo de productos con
+// su existencia. Acepta fecha_inicio y fecha_fin para acotar la leche.
 export const resumenInventario = (params) =>
   axiosClient.get('/insumos/resumen', { params }).then((r) => r.data);
 
@@ -23,3 +26,9 @@ export const registrarMovimiento = (insumoId, data) =>
 
 export const anularMovimiento = (movimientoId) =>
   axiosClient.delete(`/insumos/movimientos/${movimientoId}`).then((r) => r.data);
+
+export const descontarLeche = (data) =>
+  axiosClient.post('/insumos/leche/descontar', data).then((r) => r.data);
+
+export const restaurarLeche = () =>
+  axiosClient.delete('/insumos/leche/descontar').then((r) => r.data);

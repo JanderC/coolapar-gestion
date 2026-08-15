@@ -89,6 +89,13 @@ const Insumos = () => {
   const [insumos, setInsumos] = useState([]);
   const [leche, setLeche] = useState(null);
   const [avisoLeche, setAvisoLeche] = useState('');
+
+  // ===== SOLO PRUEBAS — quitar al arrancar en producción =====
+  const [mostrarDescuento, setMostrarDescuento] = useState(false);
+  const [litrosQuitar, setLitrosQuitar] = useState('');
+  const [tipoQuitar, setTipoQuitar] = useState('todos');
+  const [ajustando, setAjustando] = useState(false);
+  // ===== fin bloque de pruebas =====
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState('');
@@ -369,6 +376,49 @@ const Insumos = () => {
     }
   };
 
+  // ===== SOLO PRUEBAS — quitar al arrancar en producción =====
+  const descontarLeche = async (cuerpo) => {
+    setAjustando(true);
+    setError('');
+    try {
+      const respuesta = await insumosApi.descontarLeche(cuerpo);
+      setAviso(respuesta?.message || 'Litros descontados.');
+      setLitrosQuitar('');
+      await cargarTodo();
+    } catch (err) {
+      setError(`No se pudo descontar. ${detalleError(err)}`);
+    } finally {
+      setAjustando(false);
+    }
+  };
+
+  const quitarLitros = () => {
+    const cantidad = Number(litrosQuitar);
+    if (vacio(litrosQuitar) || cantidad <= 0) return setError('Indique cuántos litros quitar.');
+    descontarLeche({ litros: cantidad, tipo: tipoQuitar });
+  };
+
+  const dejarEnCero = () => {
+    if (!window.confirm('¿Dejar la leche en cero? El registro diario no se toca.')) return;
+    descontarLeche({ dejar_en_cero: true });
+  };
+
+  const restaurarLeche = async () => {
+    if (!window.confirm('¿Deshacer todos los descuentos y volver a lo realmente cargado?')) return;
+    setAjustando(true);
+    setError('');
+    try {
+      const respuesta = await insumosApi.restaurarLeche();
+      setAviso(respuesta?.message || 'Descuentos deshechos.');
+      await cargarTodo();
+    } catch (err) {
+      setError(`No se pudo restaurar. ${detalleError(err)}`);
+    } finally {
+      setAjustando(false);
+    }
+  };
+  // ===== fin bloque de pruebas =====
+
   if (cargando) return <LoadingSpinner mensaje="Cargando inventario..." />;
 
   const tipoEsEntrada = formMovimiento.tipo === 'entrada';
@@ -471,6 +521,77 @@ const Insumos = () => {
                 Los lotes de producción anotan los litros que usaron sin separar si eran buenos, ácidos o bajos en
                 grasa. Por eso lo disponible se calcula sobre el total, no sobre cada tipo por separado.
               </div>
+
+              {/* ===== SOLO PRUEBAS — quitar al arrancar en producción ===== */}
+              <div className="border border-warning rounded p-2 mt-3 bg-warning-subtle">
+                <div className="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                  <div className="small">
+                    <strong>Ajuste de pruebas</strong>
+                    {leche.litros_descontados > 0 && (
+                      <span className="ms-2">
+                        Hay {leche.litros_descontados} L descontados a mano.
+                      </span>
+                    )}
+                    <div className="text-muted">
+                      Baja el número de esta pantalla. El registro diario de los productores no se toca.
+                    </div>
+                  </div>
+                  <div className="d-flex gap-2">
+                    {leche.litros_descontados > 0 && (
+                      <Button size="sm" variant="outline-secondary" onClick={restaurarLeche} disabled={ajustando}>
+                        Deshacer
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="outline-warning"
+                      onClick={() => setMostrarDescuento((v) => !v)}
+                    >
+                      {mostrarDescuento ? 'Ocultar' : 'Quitar litros'}
+                    </Button>
+                  </div>
+                </div>
+
+                {mostrarDescuento && (
+                  <div className="d-flex flex-wrap align-items-end gap-2 mt-3">
+                    <div>
+                      <Form.Label className="small text-muted mb-1">Litros a quitar</Form.Label>
+                      <InputGroup size="sm" style={{ width: 190 }}>
+                        <Form.Control
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={litrosQuitar}
+                          onChange={(e) => setLitrosQuitar(e.target.value)}
+                          placeholder="0"
+                        />
+                        <InputGroup.Text>L</InputGroup.Text>
+                      </InputGroup>
+                    </div>
+                    <div>
+                      <Form.Label className="small text-muted mb-1">¿De cuáles?</Form.Label>
+                      <Form.Select
+                        size="sm"
+                        value={tipoQuitar}
+                        onChange={(e) => setTipoQuitar(e.target.value)}
+                        style={{ width: 190 }}
+                      >
+                        <option value="todos">De todos (primero los buenos)</option>
+                        <option value="buenos">Solo litros buenos</option>
+                        <option value="acidos">Solo litros ácidos</option>
+                        <option value="bajo_grasa">Solo bajos en grasa</option>
+                      </Form.Select>
+                    </div>
+                    <Button size="sm" variant="warning" onClick={quitarLitros} disabled={ajustando}>
+                      {ajustando ? 'Aplicando...' : 'Quitar'}
+                    </Button>
+                    <Button size="sm" variant="outline-danger" onClick={dejarEnCero} disabled={ajustando}>
+                      Dejar en 0
+                    </Button>
+                  </div>
+                )}
+              </div>
+              {/* ===== fin bloque de pruebas ===== */}
             </>
           )}
         </Card.Body>
