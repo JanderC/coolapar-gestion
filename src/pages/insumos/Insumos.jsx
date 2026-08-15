@@ -494,7 +494,6 @@ const Insumos = () => {
                     titulo={t.nombre.replace('Leche — ', '')}
                     cantidad={t.recibido_rango ?? t.recibido_total}
                     unidad={t.unidad_medida}
-                    pie={`${aNumero(t.recibido_total, 0)} ${t.unidad_medida} en total histórico`}
                   />
                 ))}
               </div>
