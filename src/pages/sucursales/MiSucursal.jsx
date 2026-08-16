@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Table, Button, Modal, Form, Alert, Badge, InputGroup, Card, Nav } from 'react-bootstrap';
 import * as ventasApi from '../../api/ventas.api';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
@@ -70,6 +70,11 @@ const MiSucursal = () => {
   const [cliente, setCliente] = useState('');
   const [metodoPago, setMetodoPago] = useState('');
   const [monedaVenta, setMonedaVenta] = useState(monedaSucursal);
+  const [busquedaVenta, setBusquedaVenta] = useState('');
+  const [avisoBusqueda, setAvisoBusqueda] = useState(null);
+  const [pagaCon, setPagaCon] = useState('');
+  const [ventaHecha, setVentaHecha] = useState(null);
+  const buscadorRef = useRef(null);
   const [fechaVenta, setFechaVenta] = useState(hoy());
   const [guardandoVenta, setGuardandoVenta] = useState(false);
   const [errorVenta, setErrorVenta] = useState('');
@@ -82,6 +87,7 @@ const MiSucursal = () => {
     unidad_medida: 'kg',
     precio_venta: '',
     moneda: '',
+    codigo_barras: '',
     cantidad: '',
     suma: 'true',
     motivo: '',
@@ -222,8 +228,177 @@ const MiSucursal = () => {
       .sort((a, b) => a.categoria.localeCompare(b.categoria, 'es'));
   }, [inventario]);
 
+  /**
+   * Coincidencia por código de barras primero, después por nombre.
+   * El código manda: un lector escribe el número exacto, y si hubiera un
+   * producto cuyo nombre contiene esos dígitos, ganaría el equivocado.
+   */
+  const buscarProducto = useCallback(
+    (texto) => {
+      const busca = String(texto || '').trim().toLowerCase();
+      if (!busca) return null;
+
+      const conStock = inventario.productos.filter((p) => p.cantidad > 0);
+
+      const porCodigo = conStock.find((p) => (p.codigo_barras || '').toLowerCase() === busca);
+      if (porCodigo) return porCodigo;
+
+      const exacto = conStock.find((p) => p.producto.toLowerCase() === busca);
+      if (exacto) return exacto;
+
+      const parciales = conStock.filter((p) => p.producto.toLowerCase().includes(busca));
+      return parciales.length === 1 ? parciales[0] : null;
+    },
+    [inventario]
+  );
+
+  /** Coincidencias parciales, para mostrarlas mientras escribe. */
+  const sugerencias = useMemo(() => {
+    const busca = busquedaVenta.trim().toLowerCase();
+    if (busca.length < 2) return [];
+
+    const conStock = inventario.productos.filter((p) => p.cantidad > 0);
+    const encontrados = conStock.filter(
+      (p) => p.producto.toLowerCase().includes(busca) || (p.codigo_barras || '').toLowerCase().includes(busca)
+    );
+    // Una sola coincidencia ya se agrega con Enter: no hace falta listarla.
+    return encontrados.length === 1 ? [] : encontrados.slice(0, 6);
+  }, [busquedaVenta, inventario]);
+
+  /**
+   * Agrega el producto a la venta. Si ya estaba, le suma uno en vez de
+   * repetir el renglón: al pasar el lector dos veces por lo mismo, lo
+   * natural es que sean dos unidades.
+   */
+  const agregarProducto = (ficha) => {
+    if (!ficha) return;
+
+    const mismaMoneda = ficha.moneda ? ficha.moneda === monedaVenta : true;
+    const precio = mismaMoneda && ficha.precio_venta !== null ? String(ficha.precio_venta) : '';
+
+    setLineas((prev) => {
+      const existente = prev.find((l) => l.producto === ficha.producto);
+      if (existente) {
+        return prev.map((l) =>
+          l.id === existente.id ? { ...l, kilos: String(Number(l.kilos || 0) + 1) } : l
+        );
+      }
+      return [...prev, { id: nuevoId(), producto: ficha.producto, kilos: '1', piezas: '', precio_kilo: precio }];
+    });
+
+    setBusquedaVenta('');
+    setAvisoBusqueda(
+      precio === '' && ficha.precio_venta !== null
+        ? { texto: `${ficha.producto} tiene su precio en ${ficha.moneda}: escríbalo a mano.`, error: true }
+        : { texto: `${ficha.producto} agregado.`, error: false }
+    );
+    // El foco vuelve al buscador para poder pasar el siguiente.
+    buscadorRef.current?.focus();
+  };
+
+  const agregarPorBusqueda = () => {
+    const ficha = buscarProducto(busquedaVenta);
+    if (ficha) return agregarProducto(ficha);
+
+    setAvisoBusqueda({
+      texto: sugerencias.length > 0
+        ? 'Hay varios que coinciden: elija uno de la lista.'
+        : `No se encontró «${busquedaVenta.trim()}» con existencia.`,
+      error: sugerencias.length === 0,
+    });
+  };
+
+  /** Vuelto. Negativo significa que lo entregado no alcanza. */
+  const vuelto = useMemo(() => {
+    if (vacio(pagaCon)) return null;
+    return Number((Number(pagaCon) - totalVenta).toFixed(2));
+  }, [pagaCon, totalVenta]);
+
+  /**
+   * Billetes que se ofrecen de atajo: los redondos por encima del total.
+   * Se calculan sobre el monto para que sirvan igual en bolívares que en
+   * pesos, donde los órdenes de magnitud no se parecen en nada.
+   */
+  const billetesSugeridos = useMemo(() => {
+    if (totalVenta <= 0) return [];
+    const escalas = [1, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000];
+    return escalas.filter((b) => b >= totalVenta).slice(0, 4);
+  }, [totalVenta]);
+
+  const imprimirRecibo = () => {
+    if (!ventaHecha) return;
+
+    const filas = ventaHecha.lineas
+      .map(
+        (l) => `<tr>
+            <td>${l.producto}<br /><small>${l.cantidad} ${l.unidad} x ${dinero(l.precio, ventaHecha.moneda)}</small></td>
+            <td class="num">${dinero(l.subtotal, ventaHecha.moneda)}</td>
+          </tr>`
+      )
+      .join('');
+
+    // Ancho de rollo de 80 mm, que es lo que usan las impresoras de punto
+    // de venta.
+    const html = `<!doctype html>
+<html><head><meta charset="utf-8" /><title>Recibo</title>
+<style>
+  @page { size: 80mm auto; margin: 4mm; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 12px; margin: 0; }
+  h1 { font-size: 15px; margin: 0 0 2px; text-align: center; }
+  .sub { text-align: center; color: #555; font-size: 11px; margin-bottom: 8px; }
+  table { width: 100%; border-collapse: collapse; }
+  td, th { padding: 3px 0; vertical-align: top; }
+  .num { text-align: right; white-space: nowrap; }
+  tfoot th { border-top: 1px dashed #000; font-size: 14px; }
+  .pago { margin-top: 8px; border-top: 1px dashed #000; padding-top: 6px; }
+  .pie { text-align: center; margin-top: 12px; font-size: 10px; color: #555; }
+</style></head>
+<body>
+  <h1>COOLAPAR</h1>
+  <div class="sub">${usuario?.sucursal?.nombre || ''}<br />${formatoCorto(ventaHecha.fecha)}${ventaHecha.id ? ` · Venta #${ventaHecha.id}` : ''}</div>
+  <table>
+    <tbody>${filas}</tbody>
+    <tfoot><tr><th>TOTAL</th><th class="num">${dinero(ventaHecha.total, ventaHecha.moneda)}</th></tr></tfoot>
+  </table>
+  ${
+    ventaHecha.pagaCon !== null
+      ? `<div class="pago">
+           <table>
+             <tr><td>Pagó con</td><td class="num">${dinero(ventaHecha.pagaCon, ventaHecha.moneda)}</td></tr>
+             <tr><td><strong>Vuelto</strong></td><td class="num"><strong>${dinero(ventaHecha.vuelto, ventaHecha.moneda)}</strong></td></tr>
+           </table>
+         </div>`
+      : ''
+  }
+  <div class="pie">Gracias por su compra</div>
+</body></html>`;
+
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
+    iframe.onload = () => {
+      setTimeout(() => {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+      }, 200);
+    };
+    iframe.srcdoc = html;
+    setTimeout(() => {
+      if (document.body.contains(iframe)) document.body.removeChild(iframe);
+    }, 8000);
+  };
+
   const abrirVenta = () => {
-    setLineas([{ id: nuevoId(), producto: '', kilos: '', piezas: '', precio_kilo: '' }]);
+    // Arranca vacía: los renglones entran por el buscador.
+    setLineas([]);
+    setBusquedaVenta('');
+    setAvisoBusqueda(null);
+    setPagaCon('');
     setCliente('');
     setMetodoPago('');
     setMonedaVenta(monedaSucursal);
@@ -236,7 +411,7 @@ const MiSucursal = () => {
     setLineas((prev) => prev.map((l) => (l.id === id ? { ...l, [campo]: valor } : l)));
 
   const guardarVenta = async (ev) => {
-    ev.preventDefault();
+    if (ev?.preventDefault) ev.preventDefault();
     setErrorVenta('');
 
     const items = lineas
@@ -251,17 +426,40 @@ const MiSucursal = () => {
     if (items.length === 0) return setErrorVenta('Agregue al menos un producto.');
     if (lineasSinExistencia.length > 0) return setErrorVenta('No hay suficiente producto. Revise las líneas en rojo.');
 
+    if (items.some((i) => i.precio_kilo <= 0)) {
+      return setErrorVenta('Falta el precio de algún producto.');
+    }
+
     setGuardandoVenta(true);
     try {
-      await ventasApi.venderDesdeSucursal({
+      const respuesta = await ventasApi.venderDesdeSucursal({
         fecha: fechaVenta,
         cliente_nombre: vacio(cliente) ? null : cliente.trim(),
         moneda: monedaVenta,
         metodo_pago: metodoPago || null,
         items,
       });
+
+      // Se arma el detalle con lo que se cobró, no con lo que devuelve el
+      // servidor: el vuelto es de esta pantalla y no se guarda.
+      setVentaHecha({
+        id: respuesta?.data?.id || null,
+        fecha: fechaVenta,
+        cliente: vacio(cliente) ? null : cliente.trim(),
+        moneda: monedaVenta,
+        lineas: items.map((i) => ({
+          producto: i.producto,
+          cantidad: i.kilos,
+          unidad: unidadDe(i.producto),
+          precio: i.precio_kilo,
+          subtotal: Number((i.kilos * i.precio_kilo).toFixed(2)),
+        })),
+        total: Number(totalVenta.toFixed(2)),
+        pagaCon: vacio(pagaCon) ? null : Number(pagaCon),
+        vuelto: vacio(pagaCon) ? null : Number((Number(pagaCon) - totalVenta).toFixed(2)),
+      });
+
       setMostrarVenta(false);
-      setAviso('Venta registrada.');
       await cargar();
     } catch (err) {
       setErrorVenta(`No se pudo registrar. ${detalleError(err)}`);
@@ -280,6 +478,7 @@ const MiSucursal = () => {
       unidad_medida: existente?.unidad_medida || 'kg',
       precio_venta: existente?.precio_venta ?? '',
       moneda: existente?.moneda || monedaSucursal,
+      codigo_barras: existente?.codigo_barras || '',
       cantidad: '',
       suma: 'true',
       motivo: '',
@@ -304,6 +503,7 @@ const MiSucursal = () => {
         unidad_medida: ajuste.unidad_medida,
         precio_venta: vacio(ajuste.precio_venta) ? null : Number(ajuste.precio_venta),
         moneda: ajuste.moneda || monedaSucursal,
+        codigo_barras: vacio(ajuste.codigo_barras) ? null : ajuste.codigo_barras.trim(),
         kilos: Number(ajuste.cantidad),
         suma: ajuste.suma === 'true',
         motivo: vacio(ajuste.motivo) ? null : ajuste.motivo.trim(),
@@ -629,6 +829,18 @@ const MiSucursal = () => {
             </Form.Group>
 
             <Form.Group className="mb-3">
+              <Form.Label>Código de barras (opcional)</Form.Label>
+              <Form.Control
+                value={ajuste.codigo_barras}
+                onChange={(e) => setAjuste({ ...ajuste, codigo_barras: e.target.value })}
+                placeholder="Pase el lector por el empaque"
+              />
+              <Form.Text className="text-muted">
+                Con código, el lector lo encuentra de una al vender. Sin código, se busca por nombre.
+              </Form.Text>
+            </Form.Group>
+
+            <Form.Group className="mb-3">
               <Form.Label>¿En qué se mide?</Form.Label>
               <Form.Select
                 value={ajuste.unidad_medida}
@@ -729,146 +941,325 @@ const MiSucursal = () => {
         </Form>
       </Modal>
 
-      {/* ---------- Modal: registrar venta ---------- */}
-      <Modal show={mostrarVenta} onHide={() => setMostrarVenta(false)} centered size="lg">
-        <Form onSubmit={guardarVenta}>
-          <Modal.Header closeButton>
-            <Modal.Title>Registrar venta</Modal.Title>
-          </Modal.Header>
-          <Modal.Body>
-            {errorVenta && <Alert variant="danger">{errorVenta}</Alert>}
+      {/* ---------- Modal: punto de venta ---------- */}
+      <Modal show={mostrarVenta} onHide={() => setMostrarVenta(false)} centered size="lg" backdrop="static">
+        <Modal.Header closeButton>
+          <Modal.Title>Registrar venta</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          {errorVenta && <Alert variant="danger">{errorVenta}</Alert>}
 
-            <div className="row g-3 mb-3">
-              <div className="col-sm-4">
-                <Form.Label>Fecha</Form.Label>
-                <Form.Control type="date" value={fechaVenta} onChange={(e) => setFechaVenta(e.target.value)} />
-              </div>
-              <div className="col-sm-4">
-                <Form.Label>Cliente (opcional)</Form.Label>
-                <Form.Control
-                  value={cliente}
-                  onChange={(e) => setCliente(e.target.value)}
-                  placeholder="Mostrador"
-                />
-              </div>
-              <div className="col-sm-4">
-                <Form.Label>Cómo paga</Form.Label>
-                <Form.Select value={metodoPago} onChange={(e) => setMetodoPago(e.target.value)}>
-                  {METODOS_PAGO.map((m) => (
-                    <option key={m.valor} value={m.valor}>
-                      {m.etiqueta}
-                    </option>
-                  ))}
-                </Form.Select>
-              </div>
-              <div className="col-sm-4">
-                <Form.Label>Moneda de la venta</Form.Label>
-                <Form.Select value={monedaVenta} onChange={(e) => setMonedaVenta(e.target.value)}>
-                  {MONEDAS.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </Form.Select>
-              </div>
+          {/* Buscador: es lo primero, con el foco puesto. Un lector de
+              código de barras escribe y manda Enter, así que funciona
+              solo, sin tocar nada. */}
+          <InputGroup size="lg" className="mb-2">
+            <InputGroup.Text>🔎</InputGroup.Text>
+            <Form.Control
+              ref={buscadorRef}
+              autoFocus
+              value={busquedaVenta}
+              onChange={(e) => setBusquedaVenta(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  agregarPorBusqueda();
+                }
+              }}
+              placeholder="Pase el lector o escriba el nombre..."
+            />
+            <Button variant="success" onClick={agregarPorBusqueda} disabled={!busquedaVenta.trim()}>
+              Agregar
+            </Button>
+          </InputGroup>
+
+          {avisoBusqueda && (
+            <div className={`small mb-2 ${avisoBusqueda.error ? 'text-danger' : 'text-muted'}`}>
+              {avisoBusqueda.texto}
             </div>
+          )}
 
-            {enOtraMoneda.length > 0 && (
-              <Alert variant="warning" className="py-2 small">
-                {enOtraMoneda.map((p) => `${p.producto} está en ${p.moneda}`).join(', ')}. La venta va en{' '}
-                {monedaVenta}, así que hay que escribir el precio a mano: el sistema no convierte monedas.
-              </Alert>
-            )}
-
-            <div className="border rounded p-3">
-              <div className="d-flex justify-content-between align-items-center mb-2">
-                <strong>Productos</strong>
-                <Button
-                  size="sm"
-                  variant="outline-success"
-                  onClick={() =>
-                    setLineas((prev) => [
-                      ...prev,
-                      { id: nuevoId(), producto: '', kilos: '', piezas: '', precio_kilo: '' },
-                    ])
-                  }
+          {/* Sugerencias mientras escribe el nombre */}
+          {sugerencias.length > 0 && (
+            <div className="border rounded mb-3">
+              {sugerencias.map((p) => (
+                <button
+                  key={p.producto}
+                  type="button"
+                  className="btn btn-link text-start w-100 text-decoration-none border-0 py-2 px-3"
+                  onClick={() => agregarProducto(p)}
                 >
-                  + Agregar
-                </Button>
-              </div>
+                  <div className="d-flex justify-content-between">
+                    <span>
+                      <strong>{p.producto}</strong>
+                      {p.codigo_barras && <span className="text-muted small ms-2">{p.codigo_barras}</span>}
+                    </span>
+                    <span className="text-muted small">
+                      {p.cantidad} {p.unidad_medida}
+                      {p.precio_venta !== null && ` · ${dinero(p.precio_venta, p.moneda || monedaVenta)}`}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
 
-              <div className="d-flex flex-column gap-2">
+          {/* ---- Lo que va en la venta ---- */}
+          {lineas.length === 0 ? (
+            <Alert variant="light" className="border text-muted text-center py-4">
+              Todavía no hay nada en esta venta. Busque el producto arriba.
+            </Alert>
+          ) : (
+            <Table size="sm" className="align-middle mb-3">
+              <thead>
+                <tr>
+                  <th>Producto</th>
+                  <th className="text-center" style={{ width: 150 }}>
+                    Cantidad
+                  </th>
+                  <th className="text-end" style={{ width: 130 }}>
+                    Precio
+                  </th>
+                  <th className="text-end" style={{ width: 120 }}>
+                    Subtotal
+                  </th>
+                  <th style={{ width: 40 }} />
+                </tr>
+              </thead>
+              <tbody>
                 {lineas.map((l) => {
-                  const disponible = l.producto ? disponibleDe(l.producto) : null;
-                  const excede = l.producto && !vacio(l.kilos) && Number(l.kilos) > disponible;
+                  const disponible = disponibleDe(l.producto);
+                  const excede = !vacio(l.kilos) && Number(l.kilos) > disponible;
+                  const subtotal = Number(l.kilos || 0) * Number(l.precio_kilo || 0);
                   return (
-                    <div key={l.id}>
-                      <InputGroup>
-                        <Form.Select
-                          value={l.producto}
-                          onChange={(e) => elegirProducto(l.id, e.target.value)}
-                        >
-                          <option value="">Elija el producto</option>
-                          {inventario.productos
-                            .filter((p) => p.cantidad > 0)
-                            .map((p) => (
-                            <option key={p.producto} value={p.producto}>
-                              {p.producto} — {p.cantidad} {p.unidad_medida}
-                              {p.categoria && p.categoria !== 'Sin categoría' ? ` (${p.categoria})` : ''}
-                            </option>
-                            ))}
-                        </Form.Select>
+                    <tr key={l.id}>
+                      <td>
+                        <div className="fw-semibold">{l.producto}</div>
+                        <div className="text-muted small">
+                          quedan {disponible} {unidadDe(l.producto)}
+                        </div>
+                        {excede && (
+                          <div className="text-danger small">No alcanza: hay {disponible}.</div>
+                        )}
+                      </td>
+                      <td>
+                        <InputGroup size="sm">
+                          <Form.Control
+                            type="number"
+                            min="0"
+                            step="0.001"
+                            value={l.kilos}
+                            isInvalid={excede}
+                            onChange={(e) => cambiarLinea(l.id, 'kilos', e.target.value)}
+                          />
+                          <InputGroup.Text>{unidadDe(l.producto)}</InputGroup.Text>
+                        </InputGroup>
+                      </td>
+                      <td>
                         <Form.Control
-                          type="number"
-                          min="0"
-                          step="0.001"
-                          value={l.kilos}
-                          isInvalid={excede}
-                          onChange={(e) => cambiarLinea(l.id, 'kilos', e.target.value)}
-                          placeholder="Cantidad"
-                          style={{ maxWidth: 120 }}
-                        />
-                        <InputGroup.Text>{unidadDe(l.producto)}</InputGroup.Text>
-                        <Form.Control
+                          size="sm"
                           type="number"
                           min="0"
                           step="0.01"
                           value={l.precio_kilo}
                           onChange={(e) => cambiarLinea(l.id, 'precio_kilo', e.target.value)}
-                          placeholder={`Precio/${unidadDe(l.producto)}`}
-                          style={{ maxWidth: 130 }}
+                          className="text-end"
                         />
+                      </td>
+                      <td className="text-end fw-semibold">{dinero(subtotal, monedaVenta)}</td>
+                      <td className="text-end">
                         <Button
-                          variant="outline-danger"
+                          size="sm"
+                          variant="link"
+                          className="text-danger p-0"
                           onClick={() => setLineas((prev) => prev.filter((x) => x.id !== l.id))}
                         >
                           ✕
                         </Button>
-                      </InputGroup>
-                      {excede && (
-                        <div className="text-danger small mt-1">
-                          Solo hay {disponible} {unidadDe(l.producto)} de {l.producto}.
-                        </div>
-                      )}
-                    </div>
+                      </td>
+                    </tr>
                   );
                 })}
+              </tbody>
+            </Table>
+          )}
+
+          {enOtraMoneda.length > 0 && (
+            <Alert variant="warning" className="py-2 small">
+              {enOtraMoneda.map((p) => `${p.producto} está en ${p.moneda}`).join(', ')}. La venta va en{' '}
+              {monedaVenta}, así que hay que escribir el precio a mano: el sistema no convierte monedas.
+            </Alert>
+          )}
+
+          {/* ---- Total y vuelto ---- */}
+          <div className="bg-light rounded p-3">
+            <div className="d-flex justify-content-between align-items-center mb-3">
+              <span className="fs-5">Total a cobrar</span>
+              <span className="fs-3 fw-semibold">{dinero(totalVenta, monedaVenta)}</span>
+            </div>
+
+            <div className="row g-3">
+              <div className="col-sm-6">
+                <Form.Label className="small text-muted mb-1">¿Con cuánto paga? (opcional)</Form.Label>
+                <InputGroup>
+                  <InputGroup.Text>{monedaVenta}</InputGroup.Text>
+                  <Form.Control
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={pagaCon}
+                    onChange={(e) => setPagaCon(e.target.value)}
+                    placeholder="0.00"
+                  />
+                </InputGroup>
+                {/* Billetes de uso corriente: un toque y listo. */}
+                <div className="d-flex flex-wrap gap-1 mt-2">
+                  {billetesSugeridos.map((b) => (
+                    <Button
+                      key={b}
+                      size="sm"
+                      variant="outline-secondary"
+                      onClick={() => setPagaCon(String(b))}
+                    >
+                      {b.toLocaleString('es-VE')}
+                    </Button>
+                  ))}
+                  {totalVenta > 0 && (
+                    <Button size="sm" variant="outline-success" onClick={() => setPagaCon(String(totalVenta))}>
+                      Justo
+                    </Button>
+                  )}
+                </div>
               </div>
 
-              <div className="text-end mt-3 pt-2 border-top fs-5">
-                Total: <strong>{dinero(totalVenta, monedaVenta)}</strong>
+              <div className="col-sm-6 d-flex align-items-center">
+                {vuelto !== null && (
+                  <div className={`w-100 text-end ${vuelto < 0 ? 'text-danger' : ''}`}>
+                    <div className="small text-muted">{vuelto < 0 ? 'Falta por pagar' : 'Vuelto a entregar'}</div>
+                    <div className="fs-2 fw-semibold lh-1">{dinero(Math.abs(vuelto), monedaVenta)}</div>
+                  </div>
+                )}
               </div>
             </div>
-          </Modal.Body>
-          <Modal.Footer>
-            <Button variant="light" onClick={() => setMostrarVenta(false)}>
-              Cancelar
-            </Button>
-            <Button variant="success" type="submit" disabled={guardandoVenta}>
-              {guardandoVenta ? 'Registrando...' : 'Registrar venta'}
-            </Button>
-          </Modal.Footer>
-        </Form>
+          </div>
+
+          <div className="row g-3 mt-1">
+            <div className="col-sm-4">
+              <Form.Label className="small text-muted mb-1">Fecha</Form.Label>
+              <Form.Control
+                size="sm"
+                type="date"
+                value={fechaVenta}
+                onChange={(e) => setFechaVenta(e.target.value)}
+              />
+            </div>
+            <div className="col-sm-4">
+              <Form.Label className="small text-muted mb-1">Cliente (opcional)</Form.Label>
+              <Form.Control
+                size="sm"
+                value={cliente}
+                onChange={(e) => setCliente(e.target.value)}
+                placeholder="Mostrador"
+              />
+            </div>
+            <div className="col-sm-2">
+              <Form.Label className="small text-muted mb-1">Paga con</Form.Label>
+              <Form.Select size="sm" value={metodoPago} onChange={(e) => setMetodoPago(e.target.value)}>
+                {METODOS_PAGO.map((m) => (
+                  <option key={m.valor} value={m.valor}>
+                    {m.etiqueta}
+                  </option>
+                ))}
+              </Form.Select>
+            </div>
+            <div className="col-sm-2">
+              <Form.Label className="small text-muted mb-1">Moneda</Form.Label>
+              <Form.Select size="sm" value={monedaVenta} onChange={(e) => setMonedaVenta(e.target.value)}>
+                {MONEDAS.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </Form.Select>
+            </div>
+          </div>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="light" onClick={() => setMostrarVenta(false)}>
+            Cancelar
+          </Button>
+          <Button variant="success" size="lg" onClick={guardarVenta} disabled={guardandoVenta || lineas.length === 0}>
+            {guardandoVenta ? 'Registrando...' : `Cobrar ${dinero(totalVenta, monedaVenta)}`}
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      {/* ---------- Modal: detalle de la venta hecha ---------- */}
+      <Modal show={Boolean(ventaHecha)} onHide={() => setVentaHecha(null)} centered>
+        <Modal.Header closeButton>
+          <Modal.Title>Venta registrada</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          {ventaHecha && (
+            <>
+              <div className="text-muted small mb-3">
+                {formatoCorto(ventaHecha.fecha)} · {ventaHecha.cliente || 'Mostrador'}
+                {ventaHecha.id && ` · Venta #${ventaHecha.id}`}
+              </div>
+
+              <Table size="sm" className="mb-3">
+                <tbody>
+                  {ventaHecha.lineas.map((l, indice) => (
+                    <tr key={`${l.producto}-${indice}`}>
+                      <td className="ps-0">
+                        {l.producto}
+                        <div className="text-muted small">
+                          {l.cantidad} {l.unidad} × {dinero(l.precio, ventaHecha.moneda)}
+                        </div>
+                      </td>
+                      <td className="pe-0 text-end fw-semibold">{dinero(l.subtotal, ventaHecha.moneda)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <th className="ps-0">Total</th>
+                    <th className="pe-0 text-end fs-5">{dinero(ventaHecha.total, ventaHecha.moneda)}</th>
+                  </tr>
+                </tfoot>
+              </Table>
+
+              {ventaHecha.pagaCon !== null && (
+                <div className="bg-light rounded p-3">
+                  <div className="d-flex justify-content-between">
+                    <span className="text-muted">Pagó con</span>
+                    <span>{dinero(ventaHecha.pagaCon, ventaHecha.moneda)}</span>
+                  </div>
+                  <div className="d-flex justify-content-between fs-5 mt-1">
+                    <strong>Vuelto</strong>
+                    <strong className="text-success">{dinero(ventaHecha.vuelto, ventaHecha.moneda)}</strong>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="outline-secondary" onClick={imprimirRecibo}>
+            Imprimir recibo
+          </Button>
+          <Button
+            variant="success"
+            onClick={() => {
+              setVentaHecha(null);
+              abrirVenta();
+            }}
+          >
+            Otra venta
+          </Button>
+          <Button variant="light" onClick={() => setVentaHecha(null)}>
+            Cerrar
+          </Button>
+        </Modal.Footer>
       </Modal>
     </div>
   );
