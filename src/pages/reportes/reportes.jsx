@@ -15,7 +15,7 @@ const detalleError = (err) => {
 const dinero = (valor, moneda = 'BS') =>
   `${Number(valor || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${moneda}`;
 
-/** Verde si gana, rojo si pierde. Sin costo no hay color: no se sabe. */
+/** Verde si gana, rojo si pierde. Sin costo no hay color: no se sabe. s*/
 const colorMargen = (r) => {
   if (r.sin_costo) return 'text-muted';
   return r.ganancia >= 0 ? 'text-success' : 'text-danger';
