@@ -210,7 +210,7 @@ const Sucursales = () => {
                     <div className="d-flex flex-wrap gap-1">
                       {s.Usuarios.map((u) => (
                         <Badge key={u.id} bg={u.activo ? 'success' : 'secondary'}>
-                          {u.usuario || u.nombre}
+                          {u.nombre || u.email}
                         </Badge>
                       ))}
                     </div>
