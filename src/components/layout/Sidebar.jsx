@@ -72,6 +72,14 @@ const IconEquipos = (props) => (
   </svg>
 );
 
+const IconSucursales = (props) => (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <path d="M3 21h18" />
+    <path d="M4 21V9l8-5 8 5v12" />
+    <path d="M9 21v-6h6v6" />
+  </svg>
+);
+
 const IconChevron = ({ colapsado }) => (
   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <polyline points={colapsado ? '9 18 15 12 9 6' : '15 18 9 12 15 6'} />
@@ -89,6 +97,7 @@ const enlaces = [
   { to: '/cuarto-frio', label: 'Cuarto frío', icon: IconCuartoFrio },
   { to: '/pagos', label: 'Pagos y contabilidad', icon: IconPagos },
   { to: '/equipos', label: 'Equipos y mobiliario', icon: IconEquipos },
+  { to: '/sucursales', label: 'Sucursales', icon: IconSucursales },
 ];
 
 const Sidebar = ({ onNavigate, mostrarEncabezado = true, colapsado = false, onToggleColapsar }) => {
