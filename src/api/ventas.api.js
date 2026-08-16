@@ -39,4 +39,13 @@ export const inventarioSucursal = (params) =>
 export const movimientosSucursal = (params) =>
   axiosClient.get(`${BASE}/sucursal/movimientos`, { params }).then((r) => r.data);
 
+// Cargar o corregir inventario a mano. { producto, kilos, piezas, suma, motivo }
+// El administrador debe agregar sucursal_id.
+export const ajustarInventarioSucursal = (data) =>
+  axiosClient.post(`${BASE}/sucursal/ajuste`, data).then((r) => r.data);
+
+// Inventario de todas las sucursales (solo personal de planta).
+export const inventariosDeSucursales = () =>
+  axiosClient.get(`${BASE}/sucursales/inventarios`).then((r) => r.data);
+
 export const venderDesdeSucursal = (data) => axiosClient.post(`${BASE}/sucursal`, data).then((r) => r.data);

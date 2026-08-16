@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Table, Button, Modal, Form, Alert, Badge, Card } from 'react-bootstrap';
 import * as sucursalesApi from '../../api/sucursales.api';
+import * as ventasApi from '../../api/ventas.api';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { vacio } from '../../utils/fechas';
 
@@ -28,6 +29,7 @@ const Sucursales = () => {
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState('');
   const [verArchivadas, setVerArchivadas] = useState(false);
+  const [inventarios, setInventarios] = useState([]);
 
   const [mostrarModal, setMostrarModal] = useState(false);
   const [editandoId, setEditandoId] = useState(null);
@@ -43,6 +45,15 @@ const Sucursales = () => {
       const respuesta = await sucursalesApi.listarSucursales();
       setSucursales(respuesta?.data || []);
       setUsuariosVinculados(respuesta?.usuarios_vinculados !== false);
+
+      // El inventario de cada sucursal se pide aparte: si esa consulta
+      // falla, la pantalla de sucursales igual sirve.
+      try {
+        const respInv = await ventasApi.inventariosDeSucursales();
+        setInventarios(respInv?.data || []);
+      } catch {
+        setInventarios([]);
+      }
     } catch (err) {
       setError(`No se pudieron cargar las sucursales. ${detalleError(err)}`);
     } finally {
@@ -242,6 +253,46 @@ const Sucursales = () => {
           </tbody>
         </Table>
       </Card>
+
+      {/* ---------- Qué tiene cada sucursal ---------- */}
+      {inventarios.length > 0 && (
+        <Card className="mt-4">
+          <Card.Header>
+            <strong>Inventario de las sucursales</strong>
+            <div className="text-muted small">
+              Lo que cada una tiene ahora: lo que confirmó al recibir, más lo que cargó a mano, menos lo que ya
+              vendió.
+            </div>
+          </Card.Header>
+          <Card.Body className="d-flex flex-wrap gap-3">
+            {inventarios.map((inv) => (
+              <Card key={inv.sucursal.id} className="flex-grow-1" style={{ minWidth: 260 }}>
+                <Card.Body className="py-3">
+                  <div className="d-flex justify-content-between align-items-baseline">
+                    <strong>{inv.sucursal.nombre}</strong>
+                    <span className="text-muted small">{inv.totales.kilos} kg</span>
+                  </div>
+
+                  {inv.productos.length === 0 ? (
+                    <div className="text-muted small mt-2">Sin producto en este momento.</div>
+                  ) : (
+                    <Table size="sm" className="mt-2 mb-0">
+                      <tbody>
+                        {inv.productos.map((p) => (
+                          <tr key={p.producto}>
+                            <td className="border-0 ps-0">{p.producto}</td>
+                            <td className="border-0 pe-0 text-end fw-semibold">{p.kilos} kg</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </Table>
+                  )}
+                </Card.Body>
+              </Card>
+            ))}
+          </Card.Body>
+        </Card>
+      )}
 
       <Modal show={mostrarModal} onHide={() => setMostrarModal(false)} centered>
         <Form onSubmit={guardar}>

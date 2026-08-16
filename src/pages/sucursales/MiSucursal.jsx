@@ -55,6 +55,12 @@ const MiSucursal = () => {
   const [guardandoVenta, setGuardandoVenta] = useState(false);
   const [errorVenta, setErrorVenta] = useState('');
 
+  // ---- Cargar o corregir inventario a mano ----
+  const [mostrarAjuste, setMostrarAjuste] = useState(false);
+  const [ajuste, setAjuste] = useState({ producto: '', kilos: '', piezas: '', suma: 'true', motivo: '' });
+  const [guardandoAjuste, setGuardandoAjuste] = useState(false);
+  const [errorAjuste, setErrorAjuste] = useState('');
+
   const cargar = useCallback(async () => {
     setError('');
     try {
@@ -177,6 +183,37 @@ const MiSucursal = () => {
     }
   };
 
+  const abrirAjuste = (producto = '') => {
+    setAjuste({ producto, kilos: '', piezas: '', suma: 'true', motivo: '' });
+    setErrorAjuste('');
+    setMostrarAjuste(true);
+  };
+
+  const guardarAjuste = async (ev) => {
+    ev.preventDefault();
+    setErrorAjuste('');
+    if (!ajuste.producto.trim()) return setErrorAjuste('Escriba qué producto es.');
+    if (vacio(ajuste.kilos) || Number(ajuste.kilos) <= 0) return setErrorAjuste('Indique cuántos kilos.');
+
+    setGuardandoAjuste(true);
+    try {
+      const respuesta = await ventasApi.ajustarInventarioSucursal({
+        producto: ajuste.producto.trim(),
+        kilos: Number(ajuste.kilos),
+        piezas: vacio(ajuste.piezas) ? null : Number(ajuste.piezas),
+        suma: ajuste.suma === 'true',
+        motivo: vacio(ajuste.motivo) ? null : ajuste.motivo.trim(),
+      });
+      setMostrarAjuste(false);
+      setAviso(respuesta?.message || 'Inventario actualizado.');
+      await cargar();
+    } catch (err) {
+      setErrorAjuste(`No se pudo guardar. ${detalleError(err)}`);
+    } finally {
+      setGuardandoAjuste(false);
+    }
+  };
+
   if (cargando) return <LoadingSpinner mensaje="Cargando..." />;
 
   return (
@@ -281,14 +318,19 @@ const MiSucursal = () => {
                 {inventario.totales.productos} producto(s) · {inventario.totales.kilos} kg
               </div>
             </div>
-            <Button
-              variant="success"
-              size="sm"
-              onClick={abrirVenta}
-              disabled={inventario.productos.length === 0}
-            >
-              Registrar venta
-            </Button>
+            <div className="d-flex gap-2">
+              <Button variant="outline-success" size="sm" onClick={() => abrirAjuste()}>
+                Cargar o corregir
+              </Button>
+              <Button
+                variant="success"
+                size="sm"
+                onClick={abrirVenta}
+                disabled={inventario.productos.length === 0}
+              >
+                Registrar venta
+              </Button>
+            </div>
           </Card.Header>
           <Table hover responsive className="mb-0 align-middle">
             <thead>
@@ -309,7 +351,7 @@ const MiSucursal = () => {
               {inventario.productos.length === 0 && (
                 <tr>
                   <td colSpan={3} className="text-center text-muted py-4">
-                    No hay producto. Confirme un despacho para cargar inventario.
+                    No hay producto. Confirme un despacho, o cárguelo a mano con «Cargar o corregir».
                   </td>
                 </tr>
               )}
@@ -411,6 +453,93 @@ const MiSucursal = () => {
             {confirmando ? 'Confirmando...' : 'Confirmar recepción'}
           </Button>
         </Modal.Footer>
+      </Modal>
+
+      {/* ---------- Modal: cargar o corregir inventario ---------- */}
+      <Modal show={mostrarAjuste} onHide={() => setMostrarAjuste(false)} centered>
+        <Form onSubmit={guardarAjuste}>
+          <Modal.Header closeButton>
+            <Modal.Title>Cargar o corregir inventario</Modal.Title>
+          </Modal.Header>
+          <Modal.Body>
+            {errorAjuste && <Alert variant="danger">{errorAjuste}</Alert>}
+
+            <p className="text-muted small">
+              Para el producto que ya tenía antes de usar el sistema, o para cuadrar contra un conteo físico. Queda
+              anotado como ajuste, separado de lo que llega por despacho.
+            </p>
+
+            <Form.Group className="mb-3">
+              <Form.Label>¿Qué se hace?</Form.Label>
+              <Form.Select value={ajuste.suma} onChange={(e) => setAjuste({ ...ajuste, suma: e.target.value })}>
+                <option value="true">Cargar producto que hay</option>
+                <option value="false">Quitar producto que ya no está</option>
+              </Form.Select>
+            </Form.Group>
+
+            <Form.Group className="mb-3">
+              <Form.Label>Producto</Form.Label>
+              <Form.Control
+                autoFocus
+                list="productos-sucursal"
+                value={ajuste.producto}
+                onChange={(e) => setAjuste({ ...ajuste, producto: e.target.value })}
+                placeholder="Semiduro, Queso blanco..."
+              />
+              <datalist id="productos-sucursal">
+                {inventario.productos.map((p) => (
+                  <option key={p.producto} value={p.producto} />
+                ))}
+              </datalist>
+              {ajuste.producto && (
+                <Form.Text className="text-muted">
+                  Ahora hay {disponibleDe(ajuste.producto)} kg.
+                </Form.Text>
+              )}
+            </Form.Group>
+
+            <div className="row g-3">
+              <div className="col-sm-7">
+                <Form.Label>Kilos</Form.Label>
+                <InputGroup>
+                  <Form.Control
+                    type="number"
+                    min="0"
+                    step="0.001"
+                    value={ajuste.kilos}
+                    onChange={(e) => setAjuste({ ...ajuste, kilos: e.target.value })}
+                  />
+                  <InputGroup.Text>kg</InputGroup.Text>
+                </InputGroup>
+              </div>
+              <div className="col-sm-5">
+                <Form.Label>Piezas (opcional)</Form.Label>
+                <Form.Control
+                  type="number"
+                  min="0"
+                  value={ajuste.piezas}
+                  onChange={(e) => setAjuste({ ...ajuste, piezas: e.target.value })}
+                />
+              </div>
+              <div className="col-12">
+                <Form.Label>Motivo</Form.Label>
+                <Form.Control
+                  value={ajuste.motivo}
+                  onChange={(e) => setAjuste({ ...ajuste, motivo: e.target.value })}
+                  placeholder="Conteo físico, producto que ya estaba, se dañó..."
+                />
+              </div>
+            </div>
+          </Modal.Body>
+          <Modal.Footer>
+            <Button variant="light" onClick={() => setMostrarAjuste(false)}>
+              Cancelar
+            </Button>
+            <Button variant="success" type="submit" disabled={guardandoAjuste}>
+              {guardandoAjuste ? 'Guardando...' : 'Guardar'}
+            </Button>
+          </Modal.Footer>
+        </Form>
       </Modal>
 
       {/* ---------- Modal: registrar venta ---------- */}
