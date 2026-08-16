@@ -13,6 +13,10 @@ const METODOS_PAGO = [
   { valor: 'credito', etiqueta: 'A crédito' },
 ];
 
+// No es una lista cerrada: se puede escribir cualquier otra. Las
+// sucursales venden mucho más que queso.
+const CATEGORIAS_SUGERIDAS = ['De la planta', 'Víveres', 'Bebidas', 'Charcutería', 'Limpieza', 'Otros'];
+
 let contador = 0;
 const nuevoId = () => {
   contador += 1;
@@ -57,7 +61,7 @@ const MiSucursal = () => {
 
   // ---- Cargar o corregir inventario a mano ----
   const [mostrarAjuste, setMostrarAjuste] = useState(false);
-  const [ajuste, setAjuste] = useState({ producto: '', kilos: '', piezas: '', suma: 'true', motivo: '' });
+  const [ajuste, setAjuste] = useState({ producto: '', categoria: '', kilos: '', piezas: '', suma: 'true', motivo: '' });
   const [guardandoAjuste, setGuardandoAjuste] = useState(false);
   const [errorAjuste, setErrorAjuste] = useState('');
 
@@ -136,6 +140,19 @@ const MiSucursal = () => {
     [lineas]
   );
 
+  // Agrupado por categoría: con víveres además del queso, una lista
+  // plana de cuarenta renglones no se puede leer.
+  const gruposInventario = useMemo(() => {
+    const mapa = new Map();
+    inventario.productos.forEach((p) => {
+      const clave = p.categoria || 'Sin categoría';
+      mapa.set(clave, [...(mapa.get(clave) || []), p]);
+    });
+    return [...mapa.entries()]
+      .map(([categoria, lista]) => ({ categoria, lista }))
+      .sort((a, b) => a.categoria.localeCompare(b.categoria, 'es'));
+  }, [inventario]);
+
   const abrirVenta = () => {
     setLineas([{ id: nuevoId(), producto: '', kilos: '', piezas: '', precio_kilo: '' }]);
     setCliente('');
@@ -184,7 +201,15 @@ const MiSucursal = () => {
   };
 
   const abrirAjuste = (producto = '') => {
-    setAjuste({ producto, kilos: '', piezas: '', suma: 'true', motivo: '' });
+    const existente = inventario.productos.find((p) => p.producto === producto);
+    setAjuste({
+      producto,
+      categoria: existente?.categoria && existente.categoria !== 'Sin categoría' ? existente.categoria : '',
+      kilos: '',
+      piezas: '',
+      suma: 'true',
+      motivo: '',
+    });
     setErrorAjuste('');
     setMostrarAjuste(true);
   };
@@ -199,6 +224,7 @@ const MiSucursal = () => {
     try {
       const respuesta = await ventasApi.ajustarInventarioSucursal({
         producto: ajuste.producto.trim(),
+        categoria: vacio(ajuste.categoria) ? null : ajuste.categoria.trim(),
         kilos: Number(ajuste.kilos),
         piezas: vacio(ajuste.piezas) ? null : Number(ajuste.piezas),
         suma: ajuste.suma === 'true',
@@ -221,8 +247,8 @@ const MiSucursal = () => {
       <div className="page-header mb-3">
         <h4 className="mb-1">{usuario?.sucursal?.nombre || 'Mi sucursal'}</h4>
         <p className="text-muted mb-0">
-          Lo que llega de la planta y lo que se vende aquí. Al recibir un despacho, cuente el producto y anote lo que
-          contó.
+          Lo que llega de la planta y todo lo demás que se vende aquí. Al recibir un despacho, cuente el producto y
+          anote lo que contó.
         </p>
       </div>
 
@@ -338,19 +364,36 @@ const MiSucursal = () => {
                 <th>Producto</th>
                 <th className="text-end">Kilos</th>
                 <th className="text-end">Piezas</th>
+                <th style={{ width: 110 }} />
               </tr>
             </thead>
             <tbody>
-              {inventario.productos.map((p) => (
-                <tr key={p.producto}>
-                  <td className="fw-semibold">{p.producto}</td>
-                  <td className="text-end fw-semibold">{p.kilos}</td>
-                  <td className="text-end text-muted">{p.piezas > 0 ? p.piezas : '—'}</td>
-                </tr>
+              {gruposInventario.map((grupo) => (
+                <React.Fragment key={grupo.categoria}>
+                  {gruposInventario.length > 1 && (
+                    <tr className="table-light">
+                      <td colSpan={4} className="fw-semibold small text-uppercase text-muted">
+                        {grupo.categoria}
+                      </td>
+                    </tr>
+                  )}
+                  {grupo.lista.map((p) => (
+                    <tr key={p.producto}>
+                      <td className="fw-semibold">{p.producto}</td>
+                      <td className="text-end fw-semibold">{p.kilos}</td>
+                      <td className="text-end text-muted">{p.piezas > 0 ? p.piezas : '—'}</td>
+                      <td className="text-end">
+                        <Button size="sm" variant="outline-secondary" onClick={() => abrirAjuste(p.producto)}>
+                          Corregir
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </React.Fragment>
               ))}
               {inventario.productos.length === 0 && (
                 <tr>
-                  <td colSpan={3} className="text-center text-muted py-4">
+                  <td colSpan={4} className="text-center text-muted py-4">
                     No hay producto. Confirme un despacho, o cárguelo a mano con «Cargar o corregir».
                   </td>
                 </tr>
@@ -484,7 +527,7 @@ const MiSucursal = () => {
                 list="productos-sucursal"
                 value={ajuste.producto}
                 onChange={(e) => setAjuste({ ...ajuste, producto: e.target.value })}
-                placeholder="Semiduro, Queso blanco..."
+                placeholder="Semiduro, arroz, refresco..."
               />
               <datalist id="productos-sucursal">
                 {inventario.productos.map((p) => (
@@ -496,6 +539,22 @@ const MiSucursal = () => {
                   Ahora hay {disponibleDe(ajuste.producto)} kg.
                 </Form.Text>
               )}
+            </Form.Group>
+
+            <Form.Group className="mb-3">
+              <Form.Label>Categoría (opcional)</Form.Label>
+              <Form.Control
+                list="categorias-sucursal"
+                value={ajuste.categoria}
+                onChange={(e) => setAjuste({ ...ajuste, categoria: e.target.value })}
+                placeholder="Víveres, bebidas..."
+              />
+              <datalist id="categorias-sucursal">
+                {CATEGORIAS_SUGERIDAS.map((c) => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
+              <Form.Text className="text-muted">Solo sirve para agrupar el inventario.</Form.Text>
             </Form.Group>
 
             <div className="row g-3">
@@ -607,7 +666,8 @@ const MiSucursal = () => {
                           <option value="">Elija el producto</option>
                           {inventario.productos.map((p) => (
                             <option key={p.producto} value={p.producto}>
-                              {p.producto} ({p.kilos} kg)
+                              {p.producto} — {p.kilos} kg
+                              {p.categoria && p.categoria !== 'Sin categoría' ? ` (${p.categoria})` : ''}
                             </option>
                           ))}
                         </Form.Select>

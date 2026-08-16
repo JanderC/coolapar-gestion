@@ -260,8 +260,8 @@ const Sucursales = () => {
           <Card.Header>
             <strong>Inventario de las sucursales</strong>
             <div className="text-muted small">
-              Lo que cada una tiene ahora: lo que confirmó al recibir, más lo que cargó a mano, menos lo que ya
-              vendió.
+              Lo que cada una tiene ahora: lo que confirmó al recibir, más lo que cargó a mano —víveres y demás
+              productos propios incluidos—, menos lo que ya vendió.
             </div>
           </Card.Header>
           <Card.Body className="d-flex flex-wrap gap-3">
@@ -280,7 +280,12 @@ const Sucursales = () => {
                       <tbody>
                         {inv.productos.map((p) => (
                           <tr key={p.producto}>
-                            <td className="border-0 ps-0">{p.producto}</td>
+                            <td className="border-0 ps-0">
+                              {p.producto}
+                              {p.categoria && p.categoria !== 'Sin categoría' && (
+                                <div className="text-muted small">{p.categoria}</div>
+                              )}
+                            </td>
                             <td className="border-0 pe-0 text-end fw-semibold">{p.kilos} kg</td>
                           </tr>
                         ))}
