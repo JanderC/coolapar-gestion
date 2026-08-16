@@ -19,7 +19,7 @@ import Ventas from '../pages/ventas/Ventas';
 import Reportes from '../pages/reportes/Reportes';
 import MiSucursal from '../pages/sucursales/MiSucursal';
 
-// Módulos fuera de servicio. Los archivos siguen en el repo; si hay que
+// Módulos fuera de servicio. Los archivos siguen en el repo; si hay que que
 // reactivar alguno, se descomenta su import y su <Route>.
 // import Dashboard from '../pages/Dashboard';
 // import SemanasPago from '../pages/semanas/SemanasPago';
