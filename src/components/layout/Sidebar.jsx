@@ -1,6 +1,7 @@
 import React from 'react';
 import { Nav, OverlayTrigger, Tooltip } from 'react-bootstrap';
 import { NavLink } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 
 // --- Iconos en línea (sin dependencias nuevas) ---
 const IconProductores = (props) => (
@@ -80,6 +81,38 @@ const IconSucursales = (props) => (
   </svg>
 );
 
+const IconUsuarios = (props) => (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <circle cx="12" cy="8" r="3.5" />
+    <path d="M5 20a7 7 0 0 1 14 0" />
+    <path d="M17.5 3.5a2.5 2.5 0 0 1 0 4" />
+  </svg>
+);
+
+const IconVentas = (props) => (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <path d="M3 4h2l2.4 11.2A2 2 0 0 0 9.4 17h7.7a2 2 0 0 0 2-1.6L21 8H6" />
+    <circle cx="10" cy="20" r="1.3" />
+    <circle cx="18" cy="20" r="1.3" />
+  </svg>
+);
+
+const IconTienda = (props) => (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <path d="M4 9h16l-1 11H5L4 9Z" />
+    <path d="M9 9V6a3 3 0 0 1 6 0v3" />
+  </svg>
+);
+
+const IconReportes = (props) => (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <path d="M3 21h18" />
+    <rect x="5" y="12" width="3.5" height="6" rx="1" />
+    <rect x="10.5" y="8" width="3.5" height="10" rx="1" />
+    <rect x="16" y="4" width="3.5" height="14" rx="1" />
+  </svg>
+);
+
 const IconChevron = ({ colapsado }) => (
   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <polyline points={colapsado ? '9 18 15 12 9 6' : '15 18 9 12 15 6'} />
@@ -88,19 +121,35 @@ const IconChevron = ({ colapsado }) => (
 
 // Módulos activos. El resto quedó fuera del menú a propósito;
 // el código sigue en el repo, solo no se navega.
+// `roles` dice quien ve cada entrada. Sin lista, la ve todo el personal
+// de la planta. Un usuario de sucursal solo ve la suya: el backend
+// igual le negaria el resto, pero mostrarle un menu que no puede usar
+// solo genera confusion.
+const TODOS_PLANTA = ['admin', 'operador', 'contabilidad'];
+
 const enlaces = [
-  { to: '/productores', label: 'Productores', icon: IconProductores },
-  { to: '/registro-leche', label: 'Registro diario de leche', icon: IconLeche },
-  { to: '/ruteros', label: 'Ruteros', icon: IconRuteros },
-  { to: '/insumos', label: 'Inventario de insumos', icon: IconInsumos },
-  { to: '/produccion', label: 'Creación de producto', icon: IconProduccion },
-  { to: '/cuarto-frio', label: 'Cuarto frío', icon: IconCuartoFrio },
-  { to: '/pagos', label: 'Pagos y contabilidad', icon: IconPagos },
-  { to: '/equipos', label: 'Equipos y mobiliario', icon: IconEquipos },
-  { to: '/sucursales', label: 'Sucursales', icon: IconSucursales },
+  { to: '/productores', label: 'Productores', icon: IconProductores, roles: TODOS_PLANTA },
+  { to: '/registro-leche', label: 'Registro diario de leche', icon: IconLeche, roles: TODOS_PLANTA },
+  { to: '/ruteros', label: 'Ruteros', icon: IconRuteros, roles: TODOS_PLANTA },
+  { to: '/insumos', label: 'Inventario de insumos', icon: IconInsumos, roles: TODOS_PLANTA },
+  { to: '/produccion', label: 'Creación de producto', icon: IconProduccion, roles: TODOS_PLANTA },
+  { to: '/cuarto-frio', label: 'Cuarto frío', icon: IconCuartoFrio, roles: TODOS_PLANTA },
+  { to: '/ventas', label: 'Ventas', icon: IconVentas, roles: TODOS_PLANTA },
+  { to: '/reportes', label: 'Reportes', icon: IconReportes, roles: ['admin', 'contabilidad'] },
+  { to: '/pagos', label: 'Pagos y contabilidad', icon: IconPagos, roles: ['admin', 'contabilidad'] },
+  { to: '/equipos', label: 'Equipos y mobiliario', icon: IconEquipos, roles: TODOS_PLANTA },
+  { to: '/sucursales', label: 'Sucursales', icon: IconSucursales, roles: ['admin', 'contabilidad'] },
+  { to: '/usuarios', label: 'Usuarios', icon: IconUsuarios, roles: ['admin'] },
+
+  // Lo unico que ve una sucursal.
+  { to: '/mi-sucursal', label: 'Mi sucursal', icon: IconTienda, roles: ['sucursal'] },
 ];
 
 const Sidebar = ({ onNavigate, mostrarEncabezado = true, colapsado = false, onToggleColapsar }) => {
+  const { usuario } = useAuth();
+  const rol = usuario?.rol;
+  const visibles = enlaces.filter((e) => !e.roles || e.roles.includes(rol));
+
   return (
     <div className={`sidebar h-100 d-flex flex-column${colapsado ? ' sidebar--colapsado' : ''}`}>
       {mostrarEncabezado && (
@@ -111,7 +160,7 @@ const Sidebar = ({ onNavigate, mostrarEncabezado = true, colapsado = false, onTo
       )}
 
       <Nav className="sidebar-nav flex-column gap-1 flex-grow-1">
-        {enlaces.map((enlace) => {
+        {visibles.map((enlace) => {
           const Icono = enlace.icon;
           const contenido = (
             <Nav.Link
