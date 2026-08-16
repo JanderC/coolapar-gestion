@@ -15,6 +15,8 @@ const METODOS_PAGO = [
 
 // No es una lista cerrada: se puede escribir cualquier otra. Las
 // sucursales venden mucho más que queso.
+const MONEDAS = ['BS', 'USD', 'COP'];
+
 const UNIDADES = [
   { valor: 'kg', etiqueta: 'kg — kilogramos' },
   { valor: 'g', etiqueta: 'g — gramos' },
@@ -67,6 +69,7 @@ const MiSucursal = () => {
   const [lineas, setLineas] = useState([]);
   const [cliente, setCliente] = useState('');
   const [metodoPago, setMetodoPago] = useState('');
+  const [monedaVenta, setMonedaVenta] = useState(monedaSucursal);
   const [fechaVenta, setFechaVenta] = useState(hoy());
   const [guardandoVenta, setGuardandoVenta] = useState(false);
   const [errorVenta, setErrorVenta] = useState('');
@@ -78,6 +81,7 @@ const MiSucursal = () => {
     categoria: '',
     unidad_medida: 'kg',
     precio_venta: '',
+    moneda: '',
     cantidad: '',
     suma: 'true',
     motivo: '',
@@ -151,21 +155,38 @@ const MiSucursal = () => {
     [inventario]
   );
 
-  /** Al elegir el producto se propone su precio de catálogo. */
+  /**
+   * Al elegir el producto se propone su precio de catálogo, pero solo si
+   * está en la misma moneda de la venta: proponer 5000 COP en una venta
+   * en dólares sería cobrar de más sin que nadie lo note.
+   */
   const elegirProducto = (idLinea, producto) => {
     const ficha = inventario.productos.find((p) => p.producto === producto);
+    const mismaMoneda = ficha?.moneda ? ficha.moneda === monedaVenta : true;
+    const tienePrecio = ficha?.precio_venta !== null && ficha?.precio_venta !== undefined;
+
     setLineas((prev) =>
       prev.map((l) =>
         l.id === idLinea
           ? {
               ...l,
               producto,
-              precio_kilo: ficha?.precio_venta !== null && ficha?.precio_venta !== undefined ? String(ficha.precio_venta) : l.precio_kilo,
+              precio_kilo: mismaMoneda && tienePrecio ? String(ficha.precio_venta) : '',
             }
           : l
       )
     );
   };
+
+  /** Productos elegidos cuyo precio está en otra moneda que la venta. */
+  const enOtraMoneda = useMemo(
+    () =>
+      lineas
+        .filter((l) => l.producto)
+        .map((l) => inventario.productos.find((p) => p.producto === l.producto))
+        .filter((p) => p && p.moneda && p.moneda !== monedaVenta && p.precio_venta !== null),
+    [lineas, inventario, monedaVenta]
+  );
 
   const lineasSinExistencia = useMemo(
     () =>
@@ -205,6 +226,7 @@ const MiSucursal = () => {
     setLineas([{ id: nuevoId(), producto: '', kilos: '', piezas: '', precio_kilo: '' }]);
     setCliente('');
     setMetodoPago('');
+    setMonedaVenta(monedaSucursal);
     setFechaVenta(hoy());
     setErrorVenta('');
     setMostrarVenta(true);
@@ -234,7 +256,7 @@ const MiSucursal = () => {
       await ventasApi.venderDesdeSucursal({
         fecha: fechaVenta,
         cliente_nombre: vacio(cliente) ? null : cliente.trim(),
-        moneda: monedaSucursal,
+        moneda: monedaVenta,
         metodo_pago: metodoPago || null,
         items,
       });
@@ -257,6 +279,7 @@ const MiSucursal = () => {
       // y litros del mismo producto haría que la suma no signifique nada.
       unidad_medida: existente?.unidad_medida || 'kg',
       precio_venta: existente?.precio_venta ?? '',
+      moneda: existente?.moneda || monedaSucursal,
       cantidad: '',
       suma: 'true',
       motivo: '',
@@ -280,6 +303,7 @@ const MiSucursal = () => {
         categoria: vacio(ajuste.categoria) ? null : ajuste.categoria.trim(),
         unidad_medida: ajuste.unidad_medida,
         precio_venta: vacio(ajuste.precio_venta) ? null : Number(ajuste.precio_venta),
+        moneda: ajuste.moneda || monedaSucursal,
         kilos: Number(ajuste.cantidad),
         suma: ajuste.suma === 'true',
         motivo: vacio(ajuste.motivo) ? null : ajuste.motivo.trim(),
@@ -441,7 +465,9 @@ const MiSucursal = () => {
                         {p.cantidad} <span className="fw-normal text-muted">{p.unidad_medida}</span>
                       </td>
                       <td className="text-end text-muted">
-                        {p.precio_venta === null ? '—' : `${dinero(p.precio_venta, monedaSucursal)} / ${p.unidad_medida}`}
+                        {p.precio_venta === null
+                          ? '—'
+                          : `${dinero(p.precio_venta, p.moneda || monedaSucursal)} / ${p.unidad_medida}`}
                       </td>
                       <td className="text-end">
                         <Button size="sm" variant="outline-secondary" onClick={() => abrirAjuste(p.producto)}>
@@ -625,7 +651,17 @@ const MiSucursal = () => {
             <Form.Group className="mb-3">
               <Form.Label>Precio de venta (opcional)</Form.Label>
               <InputGroup>
-                <InputGroup.Text>{monedaSucursal}</InputGroup.Text>
+                <Form.Select
+                  value={ajuste.moneda || monedaSucursal}
+                  onChange={(e) => setAjuste({ ...ajuste, moneda: e.target.value })}
+                  style={{ maxWidth: 110 }}
+                >
+                  {MONEDAS.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </Form.Select>
                 <Form.Control
                   type="number"
                   min="0"
@@ -637,7 +673,8 @@ const MiSucursal = () => {
                 <InputGroup.Text>por {ajuste.unidad_medida}</InputGroup.Text>
               </InputGroup>
               <Form.Text className="text-muted">
-                Viene propuesto al vender. Si ese día se cobra distinto, se cambia en la venta.
+                Cada producto puede tener su moneda: el aceite importado en dólares y la harina en pesos. Viene
+                propuesto al vender; si ese día se cobra distinto, se cambia en la venta.
               </Form.Text>
             </Form.Group>
 
@@ -724,7 +761,24 @@ const MiSucursal = () => {
                   ))}
                 </Form.Select>
               </div>
+              <div className="col-sm-4">
+                <Form.Label>Moneda de la venta</Form.Label>
+                <Form.Select value={monedaVenta} onChange={(e) => setMonedaVenta(e.target.value)}>
+                  {MONEDAS.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </Form.Select>
+              </div>
             </div>
+
+            {enOtraMoneda.length > 0 && (
+              <Alert variant="warning" className="py-2 small">
+                {enOtraMoneda.map((p) => `${p.producto} está en ${p.moneda}`).join(', ')}. La venta va en{' '}
+                {monedaVenta}, así que hay que escribir el precio a mano: el sistema no convierte monedas.
+              </Alert>
+            )}
 
             <div className="border rounded p-3">
               <div className="d-flex justify-content-between align-items-center mb-2">
@@ -802,7 +856,7 @@ const MiSucursal = () => {
               </div>
 
               <div className="text-end mt-3 pt-2 border-top fs-5">
-                Total: <strong>{dinero(totalVenta, monedaSucursal)}</strong>
+                Total: <strong>{dinero(totalVenta, monedaVenta)}</strong>
               </div>
             </div>
           </Modal.Body>
