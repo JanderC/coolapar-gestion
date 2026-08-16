@@ -15,6 +15,18 @@ const METODOS_PAGO = [
 
 // No es una lista cerrada: se puede escribir cualquier otra. Las
 // sucursales venden mucho más que queso.
+const UNIDADES = [
+  { valor: 'kg', etiqueta: 'kg — kilogramos' },
+  { valor: 'g', etiqueta: 'g — gramos' },
+  { valor: 'L', etiqueta: 'L — litros' },
+  { valor: 'ml', etiqueta: 'ml — mililitros' },
+  { valor: 'unidades', etiqueta: 'unidades' },
+  { valor: 'paquetes', etiqueta: 'paquetes' },
+  { valor: 'cajas', etiqueta: 'cajas' },
+  { valor: 'bultos', etiqueta: 'bultos' },
+  { valor: 'docenas', etiqueta: 'docenas' },
+];
+
 const CATEGORIAS_SUGERIDAS = ['De la planta', 'Víveres', 'Bebidas', 'Charcutería', 'Limpieza', 'Otros'];
 
 let contador = 0;
@@ -38,7 +50,7 @@ const MiSucursal = () => {
 
   const [vista, setVista] = useState('recibir');
   const [porRecibir, setPorRecibir] = useState([]);
-  const [inventario, setInventario] = useState({ productos: [], totales: { productos: 0, kilos: 0 } });
+  const [inventario, setInventario] = useState({ productos: [], totales: { productos: 0, por_unidad: [] } });
   const [ventas, setVentas] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
@@ -61,7 +73,15 @@ const MiSucursal = () => {
 
   // ---- Cargar o corregir inventario a mano ----
   const [mostrarAjuste, setMostrarAjuste] = useState(false);
-  const [ajuste, setAjuste] = useState({ producto: '', categoria: '', kilos: '', piezas: '', suma: 'true', motivo: '' });
+  const [ajuste, setAjuste] = useState({
+    producto: '',
+    categoria: '',
+    unidad_medida: 'kg',
+    precio_venta: '',
+    cantidad: '',
+    suma: 'true',
+    motivo: '',
+  });
   const [guardandoAjuste, setGuardandoAjuste] = useState(false);
   const [errorAjuste, setErrorAjuste] = useState('');
 
@@ -74,7 +94,7 @@ const MiSucursal = () => {
         ventasApi.listarVentas({ origen: 'sucursal' }),
       ]);
       setPorRecibir(respDespachos?.data || []);
-      setInventario(respInv?.data || { productos: [], totales: { productos: 0, kilos: 0 } });
+      setInventario(respInv?.data || { productos: [], totales: { productos: 0, por_unidad: [] } });
       setVentas(respVentas?.data || []);
     } catch (err) {
       setError(`No se pudo cargar la información. ${detalleError(err)}`);
@@ -122,9 +142,30 @@ const MiSucursal = () => {
 
   // ---------- Venta ----------
   const disponibleDe = useCallback(
-    (producto) => Number(inventario.productos.find((p) => p.producto === producto)?.kilos || 0),
+    (producto) => Number(inventario.productos.find((p) => p.producto === producto)?.cantidad || 0),
     [inventario]
   );
+
+  const unidadDe = useCallback(
+    (producto) => inventario.productos.find((p) => p.producto === producto)?.unidad_medida || 'u',
+    [inventario]
+  );
+
+  /** Al elegir el producto se propone su precio de catálogo. */
+  const elegirProducto = (idLinea, producto) => {
+    const ficha = inventario.productos.find((p) => p.producto === producto);
+    setLineas((prev) =>
+      prev.map((l) =>
+        l.id === idLinea
+          ? {
+              ...l,
+              producto,
+              precio_kilo: ficha?.precio_venta !== null && ficha?.precio_venta !== undefined ? String(ficha.precio_venta) : l.precio_kilo,
+            }
+          : l
+      )
+    );
+  };
 
   const lineasSinExistencia = useMemo(
     () =>
@@ -142,6 +183,13 @@ const MiSucursal = () => {
 
   // Agrupado por categoría: con víveres además del queso, una lista
   // plana de cuarenta renglones no se puede leer.
+  // La ficha del producto que se está ajustando, si ya existe: de ahí
+  // salen su unidad y su precio.
+  const productoExistente = useMemo(
+    () => inventario.productos.find((p) => p.producto === ajuste.producto) || null,
+    [inventario, ajuste.producto]
+  );
+
   const gruposInventario = useMemo(() => {
     const mapa = new Map();
     inventario.productos.forEach((p) => {
@@ -205,8 +253,11 @@ const MiSucursal = () => {
     setAjuste({
       producto,
       categoria: existente?.categoria && existente.categoria !== 'Sin categoría' ? existente.categoria : '',
-      kilos: '',
-      piezas: '',
+      // La unidad de un producto que ya existe no se toca: mezclar kilos
+      // y litros del mismo producto haría que la suma no signifique nada.
+      unidad_medida: existente?.unidad_medida || 'kg',
+      precio_venta: existente?.precio_venta ?? '',
+      cantidad: '',
       suma: 'true',
       motivo: '',
     });
@@ -218,15 +269,18 @@ const MiSucursal = () => {
     ev.preventDefault();
     setErrorAjuste('');
     if (!ajuste.producto.trim()) return setErrorAjuste('Escriba qué producto es.');
-    if (vacio(ajuste.kilos) || Number(ajuste.kilos) <= 0) return setErrorAjuste('Indique cuántos kilos.');
+    if (vacio(ajuste.cantidad) || Number(ajuste.cantidad) <= 0) {
+      return setErrorAjuste(`Indique cuántos ${ajuste.unidad_medida}.`);
+    }
 
     setGuardandoAjuste(true);
     try {
       const respuesta = await ventasApi.ajustarInventarioSucursal({
         producto: ajuste.producto.trim(),
         categoria: vacio(ajuste.categoria) ? null : ajuste.categoria.trim(),
-        kilos: Number(ajuste.kilos),
-        piezas: vacio(ajuste.piezas) ? null : Number(ajuste.piezas),
+        unidad_medida: ajuste.unidad_medida,
+        precio_venta: vacio(ajuste.precio_venta) ? null : Number(ajuste.precio_venta),
+        kilos: Number(ajuste.cantidad),
         suma: ajuste.suma === 'true',
         motivo: vacio(ajuste.motivo) ? null : ajuste.motivo.trim(),
       });
@@ -341,7 +395,10 @@ const MiSucursal = () => {
             <div>
               <strong>Lo que hay para vender</strong>
               <div className="text-muted small">
-                {inventario.totales.productos} producto(s) · {inventario.totales.kilos} kg
+                {inventario.totales.productos} producto(s) con existencia
+                {(inventario.totales.por_unidad || []).length > 0 && (
+                  <> · {inventario.totales.por_unidad.map((u) => `${u.total} ${u.unidad}`).join(' · ')}</>
+                )}
               </div>
             </div>
             <div className="d-flex gap-2">
@@ -352,7 +409,7 @@ const MiSucursal = () => {
                 variant="success"
                 size="sm"
                 onClick={abrirVenta}
-                disabled={inventario.productos.length === 0}
+                disabled={inventario.productos.filter((p) => p.cantidad > 0).length === 0}
               >
                 Registrar venta
               </Button>
@@ -362,8 +419,8 @@ const MiSucursal = () => {
             <thead>
               <tr>
                 <th>Producto</th>
-                <th className="text-end">Kilos</th>
-                <th className="text-end">Piezas</th>
+                <th className="text-end">Cantidad</th>
+                <th className="text-end">Precio</th>
                 <th style={{ width: 110 }} />
               </tr>
             </thead>
@@ -378,10 +435,14 @@ const MiSucursal = () => {
                     </tr>
                   )}
                   {grupo.lista.map((p) => (
-                    <tr key={p.producto}>
-                      <td className="fw-semibold">{p.producto}</td>
-                      <td className="text-end fw-semibold">{p.kilos}</td>
-                      <td className="text-end text-muted">{p.piezas > 0 ? p.piezas : '—'}</td>
+                    <tr key={p.producto} className={p.cantidad <= 0 ? 'text-muted' : undefined}>
+                      <td className={p.cantidad > 0 ? 'fw-semibold' : undefined}>{p.producto}</td>
+                      <td className="text-end fw-semibold">
+                        {p.cantidad} <span className="fw-normal text-muted">{p.unidad_medida}</span>
+                      </td>
+                      <td className="text-end text-muted">
+                        {p.precio_venta === null ? '—' : `${dinero(p.precio_venta, monedaSucursal)} / ${p.unidad_medida}`}
+                      </td>
                       <td className="text-end">
                         <Button size="sm" variant="outline-secondary" onClick={() => abrirAjuste(p.producto)}>
                           Corregir
@@ -408,7 +469,7 @@ const MiSucursal = () => {
         <Card>
           <Card.Header className="d-flex justify-content-between align-items-center flex-wrap gap-2">
             <strong>Ventas de la sucursal</strong>
-            <Button variant="success" size="sm" onClick={abrirVenta} disabled={inventario.productos.length === 0}>
+            <Button variant="success" size="sm" onClick={abrirVenta} disabled={inventario.productos.filter((p) => p.cantidad > 0).length === 0}>
               Registrar venta
             </Button>
           </Card.Header>
@@ -534,11 +595,50 @@ const MiSucursal = () => {
                   <option key={p.producto} value={p.producto} />
                 ))}
               </datalist>
-              {ajuste.producto && (
+              {ajuste.producto && productoExistente && (
                 <Form.Text className="text-muted">
-                  Ahora hay {disponibleDe(ajuste.producto)} kg.
+                  Ahora hay {productoExistente.cantidad} {productoExistente.unidad_medida}.
                 </Form.Text>
               )}
+            </Form.Group>
+
+            <Form.Group className="mb-3">
+              <Form.Label>¿En qué se mide?</Form.Label>
+              <Form.Select
+                value={ajuste.unidad_medida}
+                disabled={Boolean(productoExistente)}
+                onChange={(e) => setAjuste({ ...ajuste, unidad_medida: e.target.value })}
+              >
+                {UNIDADES.map((u) => (
+                  <option key={u.valor} value={u.valor}>
+                    {u.etiqueta}
+                  </option>
+                ))}
+              </Form.Select>
+              <Form.Text className="text-muted">
+                {productoExistente
+                  ? `${ajuste.producto} ya se lleva en ${ajuste.unidad_medida}. Para cambiarlo, déjelo primero en cero.`
+                  : 'La harina va en kilos, el aceite en litros, los refrescos por unidad. Se elige una vez.'}
+              </Form.Text>
+            </Form.Group>
+
+            <Form.Group className="mb-3">
+              <Form.Label>Precio de venta (opcional)</Form.Label>
+              <InputGroup>
+                <InputGroup.Text>{monedaSucursal}</InputGroup.Text>
+                <Form.Control
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={ajuste.precio_venta}
+                  onChange={(e) => setAjuste({ ...ajuste, precio_venta: e.target.value })}
+                  placeholder="0.00"
+                />
+                <InputGroup.Text>por {ajuste.unidad_medida}</InputGroup.Text>
+              </InputGroup>
+              <Form.Text className="text-muted">
+                Viene propuesto al vender. Si ese día se cobra distinto, se cambia en la venta.
+              </Form.Text>
             </Form.Group>
 
             <Form.Group className="mb-3">
@@ -558,27 +658,18 @@ const MiSucursal = () => {
             </Form.Group>
 
             <div className="row g-3">
-              <div className="col-sm-7">
-                <Form.Label>Kilos</Form.Label>
+              <div className="col-sm-6">
+                <Form.Label>Cantidad</Form.Label>
                 <InputGroup>
                   <Form.Control
                     type="number"
                     min="0"
                     step="0.001"
-                    value={ajuste.kilos}
-                    onChange={(e) => setAjuste({ ...ajuste, kilos: e.target.value })}
+                    value={ajuste.cantidad}
+                    onChange={(e) => setAjuste({ ...ajuste, cantidad: e.target.value })}
                   />
-                  <InputGroup.Text>kg</InputGroup.Text>
+                  <InputGroup.Text>{ajuste.unidad_medida}</InputGroup.Text>
                 </InputGroup>
-              </div>
-              <div className="col-sm-5">
-                <Form.Label>Piezas (opcional)</Form.Label>
-                <Form.Control
-                  type="number"
-                  min="0"
-                  value={ajuste.piezas}
-                  onChange={(e) => setAjuste({ ...ajuste, piezas: e.target.value })}
-                />
               </div>
               <div className="col-12">
                 <Form.Label>Motivo</Form.Label>
@@ -661,15 +752,17 @@ const MiSucursal = () => {
                       <InputGroup>
                         <Form.Select
                           value={l.producto}
-                          onChange={(e) => cambiarLinea(l.id, 'producto', e.target.value)}
+                          onChange={(e) => elegirProducto(l.id, e.target.value)}
                         >
                           <option value="">Elija el producto</option>
-                          {inventario.productos.map((p) => (
+                          {inventario.productos
+                            .filter((p) => p.cantidad > 0)
+                            .map((p) => (
                             <option key={p.producto} value={p.producto}>
-                              {p.producto} — {p.kilos} kg
+                              {p.producto} — {p.cantidad} {p.unidad_medida}
                               {p.categoria && p.categoria !== 'Sin categoría' ? ` (${p.categoria})` : ''}
                             </option>
-                          ))}
+                            ))}
                         </Form.Select>
                         <Form.Control
                           type="number"
@@ -678,17 +771,17 @@ const MiSucursal = () => {
                           value={l.kilos}
                           isInvalid={excede}
                           onChange={(e) => cambiarLinea(l.id, 'kilos', e.target.value)}
-                          placeholder="Kilos"
+                          placeholder="Cantidad"
                           style={{ maxWidth: 120 }}
                         />
-                        <InputGroup.Text>kg</InputGroup.Text>
+                        <InputGroup.Text>{unidadDe(l.producto)}</InputGroup.Text>
                         <Form.Control
                           type="number"
                           min="0"
                           step="0.01"
                           value={l.precio_kilo}
                           onChange={(e) => cambiarLinea(l.id, 'precio_kilo', e.target.value)}
-                          placeholder="Precio/kg"
+                          placeholder={`Precio/${unidadDe(l.producto)}`}
                           style={{ maxWidth: 130 }}
                         />
                         <Button
@@ -699,7 +792,9 @@ const MiSucursal = () => {
                         </Button>
                       </InputGroup>
                       {excede && (
-                        <div className="text-danger small mt-1">Solo hay {disponible} kg de {l.producto}.</div>
+                        <div className="text-danger small mt-1">
+                          Solo hay {disponible} {unidadDe(l.producto)} de {l.producto}.
+                        </div>
                       )}
                     </div>
                   );

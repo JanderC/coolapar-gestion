@@ -270,15 +270,17 @@ const Sucursales = () => {
                 <Card.Body className="py-3">
                   <div className="d-flex justify-content-between align-items-baseline">
                     <strong>{inv.sucursal.nombre}</strong>
-                    <span className="text-muted small">{inv.totales.kilos} kg</span>
+                    <span className="text-muted small">
+                      {inv.totales.productos_con_existencia} producto(s)
+                    </span>
                   </div>
 
-                  {inv.productos.length === 0 ? (
+                  {inv.productos.filter((p) => p.cantidad > 0).length === 0 ? (
                     <div className="text-muted small mt-2">Sin producto en este momento.</div>
                   ) : (
                     <Table size="sm" className="mt-2 mb-0">
                       <tbody>
-                        {inv.productos.map((p) => (
+                        {inv.productos.filter((p) => p.cantidad > 0).map((p) => (
                           <tr key={p.producto}>
                             <td className="border-0 ps-0">
                               {p.producto}
@@ -286,7 +288,9 @@ const Sucursales = () => {
                                 <div className="text-muted small">{p.categoria}</div>
                               )}
                             </td>
-                            <td className="border-0 pe-0 text-end fw-semibold">{p.kilos} kg</td>
+                            <td className="border-0 pe-0 text-end fw-semibold">
+                              {p.cantidad} {p.unidad_medida}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
