@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Table, Button, Modal, Form, Alert, Badge, Card } from 'react-bootstrap';
 import * as sucursalesApi from '../../api/sucursales.api';
 import * as ventasApi from '../../api/ventas.api';
@@ -23,6 +24,7 @@ const detalleError = (err) => {
 };
 
 const Sucursales = () => {
+  const navegar = useNavigate();
   const [sucursales, setSucursales] = useState([]);
   const [usuariosVinculados, setUsuariosVinculados] = useState(true);
   const [cargando, setCargando] = useState(true);
@@ -228,7 +230,10 @@ const Sucursales = () => {
                   )}
                 </td>
                 <td className="text-end">
-                  <div className="d-flex gap-2 justify-content-end">
+                  <div className="d-flex gap-2 justify-content-end flex-wrap">
+                    <Button size="sm" variant="success" onClick={() => navegar(`/sucursales/${s.id}`)}>
+                      Ver todo
+                    </Button>
                     <Button size="sm" variant="outline-secondary" onClick={() => abrirEditar(s)}>
                       Editar
                     </Button>
@@ -261,12 +266,17 @@ const Sucursales = () => {
             <strong>Inventario de las sucursales</strong>
             <div className="text-muted small">
               Lo que cada una tiene ahora: lo que confirmó al recibir, más lo que cargó a mano —víveres y demás
-              productos propios incluidos—, menos lo que ya vendió.
+              productos propios incluidos—, menos lo que ya vendió. Toque una para ver su desglose completo.
             </div>
           </Card.Header>
           <Card.Body className="d-flex flex-wrap gap-3">
             {inventarios.map((inv) => (
-              <Card key={inv.sucursal.id} className="flex-grow-1" style={{ minWidth: 260 }}>
+              <Card
+                key={inv.sucursal.id}
+                className="flex-grow-1"
+                style={{ minWidth: 260, cursor: 'pointer' }}
+                onClick={() => navegar(`/sucursales/${inv.sucursal.id}`)}
+              >
                 <Card.Body className="py-3">
                   <div className="d-flex justify-content-between align-items-baseline">
                     <strong>{inv.sucursal.nombre}</strong>

@@ -39,6 +39,11 @@ export const inventarioSucursal = (params) =>
 export const movimientosSucursal = (params) =>
   axiosClient.get(`${BASE}/sucursal/movimientos`, { params }).then((r) => r.data);
 
+// Todo lo de una sucursal de una vez: inventario, ventas, despachos y
+// movimientos. Solo personal de planta.
+export const detalleSucursal = (id, params) =>
+  axiosClient.get(`${BASE}/sucursales/${id}/detalle`, { params }).then((r) => r.data);
+
 // ---------- Catálogo de la sucursal ----------
 // Cada producto con su unidad (kg, L, unidades...) y su precio de venta.
 export const productosSucursal = (params) =>
