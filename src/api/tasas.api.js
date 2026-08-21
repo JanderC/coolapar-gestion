@@ -1,4 +1,4 @@
-import axiosClient from '../../api/axiosClient';
+import axiosClient from './axiosClient';
 
 export const obtenerTasas = () => axiosClient.get('/tasas').then((res) => res.data);
 
