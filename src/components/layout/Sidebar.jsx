@@ -113,6 +113,13 @@ const IconReportes = (props) => (
   </svg>
 );
 
+const IconTasas = (props) => (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <path d="M7 8h10M7 8l3-3M7 8l3 3" />
+    <path d="M17 16H7M17 16l-3-3M17 16l-3 3" />
+  </svg>
+);
+
 const IconChevron = ({ colapsado }) => (
   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <polyline points={colapsado ? '9 18 15 12 9 6' : '15 18 9 12 15 6'} />
@@ -140,6 +147,7 @@ const enlaces = [
   { to: '/equipos', label: 'Equipos y mobiliario', icon: IconEquipos, roles: TODOS_PLANTA },
   { to: '/sucursales', label: 'Sucursales', icon: IconSucursales, roles: ['admin', 'contabilidad'] },
   { to: '/usuarios', label: 'Usuarios', icon: IconUsuarios, roles: ['admin'] },
+  { to: '/tasas', label: 'Tasas de cambio', icon: IconTasas, roles: ['admin'] },
 
   // Lo unico que ve una sucursal.
   { to: '/mi-sucursal', label: 'Mi sucursal', icon: IconTienda, roles: ['sucursal'] },
