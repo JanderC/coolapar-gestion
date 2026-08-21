@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Form, Button, Alert, Spinner, Row, Col } from 'react-bootstrap';
-import * as tasasApi from './tasas.api';
+import * as tasasApi from '../../api/tasas.api';
 
 const valoresIniciales = { usd_a_cop: '', usd_a_bs: '', bs_a_cop: '' };
 
