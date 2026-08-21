@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Table, Button, Modal, Form, Alert, Badge, InputGroup, Card, Nav } from 'react-bootstrap';
 import * as ventasApi from '../../api/ventas.api';
+import * as tasasApi from '../../api/tasas.api';
+import { convertirMonto } from '../../utils/conversionMoneda';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { useAuth } from '../../context/AuthContext';
 import { formatoCorto, hoy, vacio } from '../../utils/fechas';
@@ -57,6 +59,10 @@ const MiSucursal = () => {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState('');
+  // Tasas del día para convertir precios entre monedas al vender. Si no
+  // están configuradas, queda en null y todo se comporta como antes: hay
+  // que escribir el precio a mano.
+  const [tasas, setTasas] = useState(null);
 
   // ---- Recepción ----
   const [despacho, setDespacho] = useState(null);
@@ -106,6 +112,15 @@ const MiSucursal = () => {
       setPorRecibir(respDespachos?.data || []);
       setInventario(respInv?.data || { productos: [], totales: { productos: 0, por_unidad: [] } });
       setVentas(respVentas?.data || []);
+
+      // Si esto falla o no hay tasas configuradas, la venta sigue
+      // funcionando igual que antes: se escribe el precio a mano.
+      try {
+        const respTasas = await tasasApi.obtenerTasas();
+        setTasas(respTasas?.data || null);
+      } catch {
+        setTasas(null);
+      }
     } catch (err) {
       setError(`No se pudo cargar la información. ${detalleError(err)}`);
     } finally {
@@ -162,14 +177,24 @@ const MiSucursal = () => {
   );
 
   /**
-   * Al elegir el producto se propone su precio de catálogo, pero solo si
-   * está en la misma moneda de la venta: proponer 5000 COP en una venta
-   * en dólares sería cobrar de más sin que nadie lo note.
+   * Al elegir el producto se propone su precio de catálogo. Si está en
+   * otra moneda que la venta, se convierte con la tasa vigente en vez de
+   * dejarlo vacío; sigue siendo editable por si el cajero quiere ajustarlo.
    */
   const elegirProducto = (idLinea, producto) => {
     const ficha = inventario.productos.find((p) => p.producto === producto);
     const mismaMoneda = ficha?.moneda ? ficha.moneda === monedaVenta : true;
     const tienePrecio = ficha?.precio_venta !== null && ficha?.precio_venta !== undefined;
+
+    let precioPropuesto = '';
+    if (tienePrecio) {
+      if (mismaMoneda) {
+        precioPropuesto = String(ficha.precio_venta);
+      } else {
+        const convertido = convertirMonto(ficha.precio_venta, ficha.moneda, monedaVenta, tasas);
+        precioPropuesto = convertido !== null ? String(convertido) : '';
+      }
+    }
 
     setLineas((prev) =>
       prev.map((l) =>
@@ -177,7 +202,7 @@ const MiSucursal = () => {
           ? {
               ...l,
               producto,
-              precio_kilo: mismaMoneda && tienePrecio ? String(ficha.precio_venta) : '',
+              precio_kilo: precioPropuesto,
             }
           : l
       )
@@ -274,7 +299,21 @@ const MiSucursal = () => {
     if (!ficha) return;
 
     const mismaMoneda = ficha.moneda ? ficha.moneda === monedaVenta : true;
-    const precio = mismaMoneda && ficha.precio_venta !== null ? String(ficha.precio_venta) : '';
+    const tienePrecio = ficha.precio_venta !== null && ficha.precio_venta !== undefined;
+
+    let precio = '';
+    let convertidoDesdeOtraMoneda = false;
+    if (tienePrecio) {
+      if (mismaMoneda) {
+        precio = String(ficha.precio_venta);
+      } else {
+        const convertido = convertirMonto(ficha.precio_venta, ficha.moneda, monedaVenta, tasas);
+        if (convertido !== null) {
+          precio = String(convertido);
+          convertidoDesdeOtraMoneda = true;
+        }
+      }
+    }
 
     setLineas((prev) => {
       const existente = prev.find((l) => l.producto === ficha.producto);
@@ -289,8 +328,13 @@ const MiSucursal = () => {
     setBusquedaVenta('');
     setAvisoBusqueda(
       precio === '' && ficha.precio_venta !== null
-        ? { texto: `${ficha.producto} tiene su precio en ${ficha.moneda}: escríbalo a mano.`, error: true }
-        : { texto: `${ficha.producto} agregado.`, error: false }
+        ? { texto: `${ficha.producto} tiene su precio en ${ficha.moneda}: escríbalo a mano (falta configurar la tasa).`, error: true }
+        : {
+            texto: convertidoDesdeOtraMoneda
+              ? `${ficha.producto} agregado. Precio convertido de ${ficha.moneda} a ${monedaVenta}: revíselo.`
+              : `${ficha.producto} agregado.`,
+            error: false,
+          }
     );
     // El foco vuelve al buscador para poder pasar el siguiente.
     buscadorRef.current?.focus();
@@ -1084,9 +1128,10 @@ const MiSucursal = () => {
           )}
 
           {enOtraMoneda.length > 0 && (
-            <Alert variant="warning" className="py-2 small">
-              {enOtraMoneda.map((p) => `${p.producto} está en ${p.moneda}`).join(', ')}. La venta va en{' '}
-              {monedaVenta}, así que hay que escribir el precio a mano: el sistema no convierte monedas.
+            <Alert variant={tasas ? 'info' : 'warning'} className="py-2 small">
+              {tasas
+                ? `${enOtraMoneda.map((p) => `${p.producto} está en ${p.moneda}`).join(', ')}. Se convirtió a ${monedaVenta} con la tasa del día; revise el precio antes de cobrar.`
+                : `${enOtraMoneda.map((p) => `${p.producto} está en ${p.moneda}`).join(', ')}. La venta va en ${monedaVenta} y no hay tasas configuradas, así que hay que escribir el precio a mano.`}
             </Alert>
           )}
 
