@@ -646,20 +646,41 @@ const RegistroLeche = () => {
   .cuadro .menor { font-size: 8px; color: #6c757d; display: block; }
   .cuadro tfoot th { background: #e9ecef; }
   .resumen-monedas { display: flex; flex-wrap: wrap; gap: 6px 24px; font-size: 12px; margin-top: 10px; padding-top: 8px; border-top: 2px solid #198754; }
+  /* Truco para que el encabezado (con el logo) se repita en cada hoja
+     impresa: los navegadores solo repiten contenido entre páginas cuando
+     va dentro de un <thead> de una tabla que abarca varias hojas. Un
+     <div> normal, en cambio, solo aparece una vez, al principio de todo
+     el documento, aunque el contenido ocupe varias hojas. */
+  table.hoja-imprimir { width: 100%; border-collapse: collapse; }
+  table.hoja-imprimir > thead { display: table-header-group; }
+  table.hoja-imprimir > tbody { display: table-row-group; }
+  table.hoja-imprimir > thead td, table.hoja-imprimir > tbody td { padding: 0; border: none; }
 </style>
 </head>
 <body>
-  <div class="encabezado">
-    <img src="${LOGO_URL}" alt="Coolapar" />
-    <div>
-      <h1>COOLAPAR</h1>
-      <p>Registro diario de leche${subtitulo ? ` — ${subtitulo}` : ''}</p>
-    </div>
-  </div>
-
-  ${bloquesHtml.join('')}
-
-  <div class="pie">Impreso el ${formatoCorto(hoy())}</div>
+  <table class="hoja-imprimir">
+    <thead>
+      <tr>
+        <td>
+          <div class="encabezado">
+            <img src="${LOGO_URL}" alt="Coolapar" />
+            <div>
+              <h1>COOLAPAR</h1>
+              <p>Registro diario de leche${subtitulo ? ` — ${subtitulo}` : ''}</p>
+            </div>
+          </div>
+        </td>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>
+          ${bloquesHtml.join('')}
+          <div class="pie">Impreso el ${formatoCorto(hoy())}</div>
+        </td>
+      </tr>
+    </tbody>
+  </table>
 </body>
 </html>`;
 
