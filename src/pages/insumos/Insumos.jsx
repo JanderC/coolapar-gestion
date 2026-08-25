@@ -277,7 +277,7 @@ const Insumos = () => {
   const cambiarEstadoInsumo = async (i) => {
     const desactivando = i.activo;
     const pregunta = desactivando
-      ? `¿Archivar ${i.nombre}? Deja de aparecer en la lista, pero su historial se conserva.`
+      ? `Eliminar ${i.nombre}? Deja de aparecer en la lista, pero su historial se conserva.`
       : `¿Volver a usar ${i.nombre}?`;
     if (!window.confirm(pregunta)) return;
 
@@ -710,7 +710,7 @@ const Insumos = () => {
                         Editar
                       </Button>
                       <Button size="sm" variant="outline-danger" onClick={() => cambiarEstadoInsumo(i)}>
-                        {i.activo ? 'Archivar' : 'Reactivar'}
+                        {i.activo ? 'Eliminar' : 'Reactivar'}
                       </Button>
                     </div>
                   </td>

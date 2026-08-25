@@ -169,7 +169,7 @@ const Equipos = () => {
 
   const cambiarEstado = async (equipo) => {
     if (equipo.activo) {
-      if (!window.confirm(`¿Archivar ${equipo.nombre}? Deja de aparecer, pero no se borra.`)) return;
+      if (!window.confirm(`¿Eliminar ${equipo.nombre}? Su historial se conserva.`)) return;
       try {
         await equiposApi.archivarEquipo(equipo.id);
         setAviso('Equipo archivado.');
@@ -364,7 +364,7 @@ const Equipos = () => {
                             variant={e.activo ? 'outline-danger' : 'outline-success'}
                             onClick={() => cambiarEstado(e)}
                           >
-                            {e.activo ? 'Archivar' : 'Reactivar'}
+                            {e.activo ? 'Eliminar' : 'Reactivar'}
                           </Button>
                         </div>
                       </td>

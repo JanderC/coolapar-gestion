@@ -485,7 +485,7 @@ const Produccion = () => {
 
   const cambiarEstado = async (l) => {
     const desactivando = l.activo;
-    if (!window.confirm(desactivando ? `¿Desactivar el lote de ${l.producto} del ${formatoCorto(l.fecha)}?` : `¿Reactivar este lote?`)) {
+    if (!window.confirm(desactivando ? `¿Eliminar el lote de ${l.producto} del ${formatoCorto(l.fecha)}?` : `¿Reactivar este lote?`)) {
       return;
     }
     setError('');
@@ -585,7 +585,7 @@ const Produccion = () => {
                       variant={l.activo ? 'outline-danger' : 'outline-success'}
                       onClick={() => cambiarEstado(l)}
                     >
-                      {l.activo ? 'Desactivar' : 'Reactivar'}
+                      {l.activo ? 'Eliminar' : 'Reactivar'}
                     </Button>
                   </td>
                 </tr>

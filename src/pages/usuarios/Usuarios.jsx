@@ -160,7 +160,7 @@ const Usuarios = () => {
   const cambiarEstado = async (u) => {
     try {
       if (u.activo) {
-        if (!window.confirm(`¿Desactivar a ${u.nombre}? No podrá volver a entrar.`)) return;
+        if (!window.confirm(`Eliminar a ${u.nombre}? No podrá volver a entrar.`)) return;
         await usuariosApi.desactivarUsuario(u.id);
         setAviso('Usuario desactivado.');
       } else {
@@ -259,7 +259,7 @@ const Usuarios = () => {
                       variant={u.activo ? 'outline-danger' : 'outline-success'}
                       onClick={() => cambiarEstado(u)}
                     >
-                      {u.activo ? 'Desactivar' : 'Reactivar'}
+                      {u.activo ? 'Eliminar' : 'Reactivar'}
                     </Button>
                   </div>
                 </td>

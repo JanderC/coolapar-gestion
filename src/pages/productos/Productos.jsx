@@ -62,7 +62,7 @@ const Productos = () => {
   };
 
   const desactivar = async (id) => {
-    if (!window.confirm('¿Desactivar este producto?')) return;
+    if (!window.confirm('¿Eliminar este producto?')) return;
     await productosApi.eliminarProducto(id);
     await cargar();
   };
@@ -108,7 +108,7 @@ const Productos = () => {
                 </Button>
                 {p.activo && (
                   <Button size="sm" variant="outline-danger" onClick={() => desactivar(p.id)}>
-                    Desactivar
+                    Eliminar
                   </Button>
                 )}
               </td>

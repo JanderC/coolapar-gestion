@@ -78,7 +78,7 @@ const Proveedores = () => {
   };
 
   const desactivarProveedor = async (id) => {
-    if (!window.confirm('¿Desactivar este proveedor?')) return;
+    if (!window.confirm('¿Eliminar este proveedor?')) return;
     await proveedoresApi.eliminarProveedor(id);
     await cargar();
   };
@@ -145,7 +145,7 @@ const Proveedores = () => {
                     </Button>
                     {p.activo && (
                       <Button size="sm" variant="outline-danger" onClick={() => desactivarProveedor(p.id)}>
-                        Desactivar
+                        Eliminar
                       </Button>
                     )}
                   </td>

@@ -135,7 +135,7 @@ const Empleados = () => {
   };
 
   const archivar = async (e) => {
-    if (!window.confirm(`¿Archivar a ${e.nombre}? Su historial se conserva.`)) return;
+    if (!window.confirm(`¿Eliminar a ${e.nombre}? Su historial se conserva.`)) return;
     setError('');
     try {
       await nominaApi.archivarEmpleado(e.id);
@@ -543,7 +543,7 @@ const Empleados = () => {
                       </Button>
                       {e.activo && (
                         <Button size="sm" variant="outline-danger" onClick={() => archivar(e)}>
-                          Archivar
+                          Eliminar
                         </Button>
                       )}
                     </div>

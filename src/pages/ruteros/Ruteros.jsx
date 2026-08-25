@@ -589,7 +589,7 @@ const Ruteros = () => {
 
   const cambiarEstado = async (r) => {
     const desactivando = r.activo;
-    if (!window.confirm(desactivando ? `¿Desactivar a ${r.nombre}?` : `¿Reactivar a ${r.nombre}?`)) return;
+    if (!window.confirm(desactivando ? `¿Eliminar a ${r.nombre}?` : `¿Reactivar a ${r.nombre}?`)) return;
     setError('');
     try {
       if (desactivando) {
@@ -1186,7 +1186,7 @@ const Ruteros = () => {
                       variant={r.activo ? 'outline-danger' : 'outline-success'}
                       onClick={() => cambiarEstado(r)}
                     >
-                      {r.activo ? 'Desactivar' : 'Reactivar'}
+                      {r.activo ? 'Eliminar' : 'Reactivar'}
                     </Button>
                   </td>
                 </tr>

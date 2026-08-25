@@ -124,7 +124,7 @@ const Sucursales = () => {
   const cambiarEstado = async (s) => {
     try {
       if (s.activo) {
-        if (!window.confirm(`¿Archivar ${s.nombre}? Sus ventas y despachos se conservan.`)) return;
+        if (!window.confirm(`Eliminar ${s.nombre}? Sus ventas y despachos se conservan.`)) return;
         await sucursalesApi.archivarSucursal(s.id);
         setAviso('Sucursal archivada.');
       } else {
@@ -242,7 +242,7 @@ const Sucursales = () => {
                       variant={s.activo ? 'outline-danger' : 'outline-success'}
                       onClick={() => cambiarEstado(s)}
                     >
-                      {s.activo ? 'Archivar' : 'Reactivar'}
+                      {s.activo ? 'Eliminar' : 'Reactivar'}
                     </Button>
                   </div>
                 </td>

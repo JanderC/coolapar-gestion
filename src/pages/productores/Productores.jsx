@@ -273,7 +273,7 @@ const Productores = () => {
   const cambiarEstado = async (productor) => {
     const desactivando = productor.activo;
     const pregunta = desactivando
-      ? `¿Desactivar a ${productor.nombre}? Dejará de aparecer en los registros diarios.`
+      ? `¿Eliminar a ${productor.nombre}? Dejará de aparecer en los registros diarios.`
       : `¿Reactivar a ${productor.nombre}?`;
     if (!window.confirm(pregunta)) return;
 
@@ -457,7 +457,7 @@ const Productores = () => {
                   variant={p.activo ? 'outline-danger' : 'outline-success'}
                   onClick={() => cambiarEstado(p)}
                 >
-                  {p.activo ? 'Desactivar' : 'Reactivar'}
+                  {p.activo ? 'Eliminar' : 'Reactivar'}
                 </Button>
               </td>
             </tr>
