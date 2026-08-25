@@ -422,6 +422,22 @@ const Insumos = () => {
   if (cargando) return <LoadingSpinner mensaje="Cargando inventario..." />;
 
   const tipoEsEntrada = formMovimiento.tipo === 'entrada';
+
+  // El botón "Cargar" abre siempre el mismo modal; adentro, este selector
+  // decide si es una compra (con precio), una carga sin factura (ajuste)
+  // o un consumo (resta existencia). Así no hace falta un botón distinto
+  // en la tabla para cada caso.
+  const opcionMovimiento = !tipoEsEntrada ? 'consumo' : formMovimiento.es_ajuste ? 'ajuste' : 'compra';
+
+  const cambiarOpcionMovimiento = (valor) => {
+    if (valor === 'consumo') {
+      setFormMovimiento({ ...formMovimiento, tipo: 'salida', es_ajuste: false, precio_unitario: '' });
+    } else if (valor === 'compra') {
+      setFormMovimiento({ ...formMovimiento, tipo: 'entrada', es_ajuste: false });
+    } else {
+      setFormMovimiento({ ...formMovimiento, tipo: 'entrada', es_ajuste: true, precio_unitario: '' });
+    }
+  };
   const unidadForm = insumo?.unidad_medida || '';
 
   return (
@@ -660,7 +676,21 @@ const Insumos = () => {
                   onClick={() => setInsumoId(elegido ? '' : String(i.id))}
                 >
                   <td>
-                    <span className="fw-semibold">{i.nombre}</span>
+                    <div className="d-flex align-items-center gap-2">
+                      <span className="fw-semibold">{i.nombre}</span>
+                      <Button
+                        size="sm"
+                        variant="link"
+                        className="p-0 text-muted"
+                        title="Editar producto"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          abrirEditarInsumo(i);
+                        }}
+                      >
+                        ✎
+                      </Button>
+                    </div>
                     {!i.activo && (
                       <Badge bg="secondary" className="ms-2">
                         Archivado
@@ -687,27 +717,13 @@ const Insumos = () => {
                   </td>
                   <td className="text-end" onClick={(e) => e.stopPropagation()}>
                     <div className="d-flex gap-2 justify-content-end flex-wrap">
-                      <Button size="sm" variant="outline-success" onClick={() => abrirMovimiento(i, 'entrada')}>
-                        Compra
-                      </Button>
                       <Button
                         size="sm"
-                        variant="outline-info"
-                        title="Cargar lo que ya hay en el depósito, sin precio"
+                        variant="outline-success"
+                        title="Compra, carga sin factura o consumo"
                         onClick={() => abrirMovimiento(i, 'entrada', true)}
                       >
-                        Cargar existencia
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline-primary"
-                        onClick={() => abrirMovimiento(i, 'salida')}
-                        disabled={aNumero(i.stock_actual) <= 0}
-                      >
-                        Consumo
-                      </Button>
-                      <Button size="sm" variant="outline-secondary" onClick={() => abrirEditarInsumo(i)}>
-                        Editar
+                        Cargar
                       </Button>
                       <Button size="sm" variant="outline-danger" onClick={() => cambiarEstadoInsumo(i)}>
                         {i.activo ? 'Eliminar' : 'Reactivar'}
@@ -955,20 +971,14 @@ const Insumos = () => {
           <Modal.Body>
             {errorFormMovimiento && <Alert variant="danger">{errorFormMovimiento}</Alert>}
 
-            {tipoEsEntrada && (
-              <Form.Group className="mb-3">
-                <Form.Label>¿De dónde viene?</Form.Label>
-                <Form.Select
-                  value={formMovimiento.es_ajuste ? 'ajuste' : 'compra'}
-                  onChange={(e) =>
-                    setFormMovimiento({ ...formMovimiento, es_ajuste: e.target.value === 'ajuste' })
-                  }
-                >
-                  <option value="compra">Compra — llegó y se pagó</option>
-                  <option value="ajuste">Carga inicial o ajuste — ya estaba, sin factura</option>
-                </Form.Select>
-              </Form.Group>
-            )}
+            <Form.Group className="mb-3">
+              <Form.Label>¿Qué se hace?</Form.Label>
+              <Form.Select value={opcionMovimiento} onChange={(e) => cambiarOpcionMovimiento(e.target.value)}>
+                <option value="ajuste">Cargar existencia — ya estaba, sin factura</option>
+                <option value="compra">Compra — llegó y se pagó</option>
+                <option value="consumo">Consumo — se usó, se dañó o se perdió</option>
+              </Form.Select>
+            </Form.Group>
 
             <p className="text-muted small">
               {!tipoEsEntrada
