@@ -1033,7 +1033,7 @@ const Produccion = () => {
 
               {costoEstimado.length > 0 && (
                 <div className="text-end text-muted small mt-3 pt-2 border-top">
-                  Costo estimado del lote:{' '}
+                  Costo estimado del producto creado:{' '}
                   {costoEstimado.map((c) => (
                     <strong key={c.moneda} className="ms-2">
                       {formatearMontoEnMoneda(c.monto, c.moneda)}
