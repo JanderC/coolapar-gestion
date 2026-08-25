@@ -657,9 +657,8 @@ const Insumos = () => {
           <thead>
             <tr>
               <th>Producto</th>
-              <th>Se mide en</th>
+              <th>Unidad</th>
               <th className="text-end">Existencia</th>
-              <th className="text-end">Avisar cuando baje de</th>
               <th>Precio de referencia</th>
               <th className="text-end">Acciones</th>
             </tr>
@@ -696,7 +695,6 @@ const Insumos = () => {
                         Archivado
                       </Badge>
                     )}
-                    {i.proveedor && <div className="text-muted small">{i.proveedor}</div>}
                   </td>
                   <td>{i.unidad_medida}</td>
                   <td className={`text-end fw-semibold ${bajo ? 'text-danger' : ''}`}>
@@ -706,9 +704,6 @@ const Insumos = () => {
                         Bajo
                       </Badge>
                     )}
-                  </td>
-                  <td className="text-end text-muted">
-                    {i.stock_minimo === null || i.stock_minimo === undefined ? 'Sin aviso' : aNumero(i.stock_minimo, 0)}
                   </td>
                   <td className="text-muted">
                     {i.precio_unitario_referencia === null || i.precio_unitario_referencia === undefined
@@ -735,7 +730,7 @@ const Insumos = () => {
             })}
             {insumosVisibles.length === 0 && (
               <tr>
-                <td colSpan={6} className="text-center text-muted py-4">
+                <td colSpan={5} className="text-center text-muted py-4">
                   {busqueda
                     ? `Ningún producto coincide con «${busqueda}».`
                     : 'Todavía no hay productos cargados. Empiece con «Nuevo producto».'}
