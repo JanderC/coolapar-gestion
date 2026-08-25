@@ -6,7 +6,9 @@ import * as ruterosApi from '../../api/ruteros.api';
 import * as insumosApi from '../../api/insumos.api';
 import * as cuartoFrioApi from '../../api/cuartoFrio.api';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
+import { useMoneda } from '../../context/MonedaContext';
 import { desempacar, formatoCorto, hoy, vacio } from '../../utils/fechas';
+import { costoPorKiloPorMoneda, redondear2 } from '../../utils/costos';
 
 const PRODUCTOS_SUGERIDOS = ['Semiduro', 'Queso blanco', 'Queso duro', 'Requesón', 'Mantequilla', 'Suero'];
 
@@ -17,6 +19,8 @@ const MONEDAS_LOTE = ['BS', 'USD', 'COP'];
 const formVacio = { fecha: hoy(), producto: '', notas: '', cantidad_unidades: '' };
 
 const Produccion = () => {
+  const { formatearMontoEnMoneda } = useMoneda();
+
   const [pestana, setPestana] = useState('lotes');
   const [lotes, setLotes] = useState([]);
   const [resumen, setResumen] = useState([]);
@@ -277,8 +281,17 @@ const Produccion = () => {
       sumarA(insumo.moneda_referencia || 'BS', Number(precio) * Number(l.cantidad));
     });
 
-    return [...porMoneda.entries()].map(([moneda, monto]) => ({ moneda, monto }));
+    return [...porMoneda.entries()].map(([moneda, monto]) => ({ moneda, monto: redondear2(monto) }));
   }, [precioLeche, monedaLeche, litrosTotal, lineasInsumos, buscarInsumo]);
+
+  /** Costo por kilo: el mismo costo total del lote, dividido entre los
+   * kilos obtenidos. Es la cuenta que se hace a mano en el cuaderno
+   * (sumar todo y dividir una sola vez al final), llevada al módulo
+   * compartido de utils/costos.js para no repetir la fórmula. */
+  const costoPorKilo = useMemo(
+    () => costoPorKiloPorMoneda(costoEstimado, kilosTotal),
+    [costoEstimado, kilosTotal]
+  );
 
   /** Carga la fórmula del último lote de ese producto, si existe. */
   const buscarFormulaAnterior = useCallback(async (producto) => {
@@ -1023,9 +1036,22 @@ const Produccion = () => {
                   Costo estimado del lote:{' '}
                   {costoEstimado.map((c) => (
                     <strong key={c.moneda} className="ms-2">
-                      {c.monto.toFixed(2)} {c.moneda}
+                      {formatearMontoEnMoneda(c.monto, c.moneda)}
                     </strong>
                   ))}
+                  {costoPorKilo.length > 0 && (
+                    <div className="mt-1">
+                      Costo por kilo:{' '}
+                      {costoPorKilo.map((c) => (
+                        <strong key={c.moneda} className="ms-2">
+                          {formatearMontoEnMoneda(c.monto, c.moneda)}
+                        </strong>
+                      ))}
+                    </div>
+                  )}
+                  {costoPorKilo.length === 0 && (
+                    <div className="mt-1 fst-italic">Indique los kilos obtenidos para ver el costo por kilo.</div>
+                  )}
                   <div>Con los precios de referencia del inventario y el precio de leche que puso arriba.</div>
                 </div>
               )}
