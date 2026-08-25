@@ -583,7 +583,7 @@ const Produccion = () => {
                   <td className="fw-semibold">{l.producto}</td>
                   <td className="text-end">{l.litros_utilizados}</td>
                   <td className="text-end">{l.kilos_obtenidos}</td>
-                  <td className="text-end fw-semibold">{Number(l.porcentaje_litro_kilo).toFixed(4)}</td>
+                  <td className="text-end fw-semibold">{Number(l.porcentaje_litro_kilo).toFixed(2)}</td>
                   <td className="text-end">{l.cantidad_unidades ?? '—'}</td>
                   <td className="text-muted">{l.notas || '—'}</td>
                   <td>
@@ -836,7 +836,7 @@ const Produccion = () => {
 
             {porcentajePreview !== null && (
               <Alert variant="light" className="border text-center py-2 mb-3">
-                Rendimiento: <strong className="fs-5">{porcentajePreview.toFixed(4)}</strong> litros por kilo
+                Rendimiento: <strong className="fs-5">{porcentajePreview.toFixed(2)}</strong> litros por kilo
               </Alert>
             )}
 
