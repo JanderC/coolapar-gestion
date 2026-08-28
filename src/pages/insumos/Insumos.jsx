@@ -192,6 +192,18 @@ const Insumos = () => {
 
   const enAlerta = useMemo(() => insumos.filter((i) => i.activo && stockBajo(i)), [insumos]);
 
+  // Suma la existencia agrupando por unidad de medida: no tiene sentido
+  // sumar kilos con litros en un solo número, así que el total sale como
+  // "150 kg · 30 L · 10 unidades" en vez de mezclarlo todo.
+  const totalesExistencia = useMemo(() => {
+    const acumulado = {};
+    insumosVisibles.forEach((i) => {
+      if (!i.unidad_medida) return;
+      acumulado[i.unidad_medida] = (acumulado[i.unidad_medida] || 0) + aNumero(i.stock_actual, 0);
+    });
+    return Object.entries(acumulado).map(([unidad, cantidad]) => conUnidad(cantidad, unidad));
+  }, [insumosVisibles]);
+
   // ---------- Alta y edición de productos ----------
   const abrirNuevoInsumo = () => {
     setEditandoId(null);
@@ -738,6 +750,17 @@ const Insumos = () => {
               </tr>
             )}
           </tbody>
+          {insumosVisibles.length > 0 && (
+            <tfoot>
+              <tr>
+                <th colSpan={2} className="text-end">
+                  TOTAL
+                </th>
+                <th className="text-end">{totalesExistencia.join(' · ') || '—'}</th>
+                <th colSpan={2}></th>
+              </tr>
+            </tfoot>
+          )}
         </Table>
 
         {insumosVisibles.length > 0 && (
