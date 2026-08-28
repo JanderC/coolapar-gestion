@@ -722,7 +722,7 @@ const Insumos = () => {
                       </Button>
                       <Button size="sm" variant="outline-danger" onClick={() => cambiarEstadoInsumo(i)}>
                         {i.activo ? 'Eliminar' : 'Reactivar'}
-                      </Button>
+                      </Button> 
                     </div>
                   </td>
                 </tr>

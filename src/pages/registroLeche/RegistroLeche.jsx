@@ -566,7 +566,7 @@ const RegistroLeche = () => {
 
     return `
   <div class="bloque">
-    <div class="nombre-productor">${p.nombre}</div>
+    <div class="nombre-productor"><img src="${LOGO_URL}" alt="Coolapar" />${p.nombre}</div>
     <div class="info">
       <div><strong>Semana:</strong> ${formatoCorto(diasHoja[0]?.fecha)} a ${formatoCorto(diasHoja[diasHoja.length - 1]?.fecha)}</div>
       <div><strong>Precio por litro:</strong> ${formatearMontoEnMoneda(precioNormal, monedaHoja)}</div>
@@ -628,7 +628,8 @@ const RegistroLeche = () => {
   .encabezado p { margin: 2px 0 0; color: #6c757d; font-size: 13px; }
   .bloque { margin-bottom: 28px; padding-bottom: 18px; border-bottom: 1px dashed #ced4da; break-inside: avoid; }
   .bloque:last-child { border-bottom: none; }
-  .nombre-productor { font-size: 16px; font-weight: bold; margin-bottom: 6px; }
+  .nombre-productor { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: bold; margin-bottom: 6px; }
+  .nombre-productor img { height: 28px; width: auto; }
   .info { display: flex; flex-wrap: wrap; gap: 4px 24px; font-size: 12px; margin-bottom: 10px; }
   table { width: 100%; border-collapse: collapse; font-size: 12px; }
   th, td { border: 1px solid #dee2e6; padding: 5px 7px; text-align: left; }
