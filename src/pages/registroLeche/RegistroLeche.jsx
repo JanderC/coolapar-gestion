@@ -544,6 +544,7 @@ const RegistroLeche = () => {
             <td class="num">${litrosAcidos > 0 ? litrosAcidos : '—'}</td>
             <td class="num">${litrosBajoGrasa > 0 ? litrosBajoGrasa : '—'}</td>
             <td class="num">${tieneDatos ? formatearMontoEnMoneda(subtotal, monedaHoja) : '—'}</td>
+            <td class="firma-dia"></td>
           </tr>`;
       })
       .join('');
@@ -583,6 +584,7 @@ const RegistroLeche = () => {
           <th class="num">Litros ácidos</th>
           <th class="num">Bajo en grasa</th>
           <th class="num">Subtotal</th>
+          <th>Firma</th>
         </tr>
       </thead>
       <tbody>${filas}</tbody>
@@ -593,6 +595,7 @@ const RegistroLeche = () => {
           <th class="num">${datosHoja.totales.total_litros_acidos > 0 ? datosHoja.totales.total_litros_acidos + ' L' : '—'}</th>
           <th class="num">${datosHoja.totales.total_litros_bajo_grasa > 0 ? datosHoja.totales.total_litros_bajo_grasa + ' L' : '—'}</th>
           <th class="num">${formatearMontoEnMoneda(datosHoja.totales.total_pagar, monedaHoja)}</th>
+          <th></th>
         </tr>
       </tfoot>
     </table>
@@ -635,6 +638,7 @@ const RegistroLeche = () => {
   th, td { border: 1px solid #dee2e6; padding: 5px 7px; text-align: left; }
   thead th { background: #f1f3f5; }
   td.num, th.num { text-align: right; }
+  th:last-child, td.firma-dia { width: 90px; }
   tfoot th { background: #f1f3f5; }
   .subtotales { display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: 12px; margin-top: 10px; padding-top: 8px; border-top: 1px solid #dee2e6; }
   .firmas { display: flex; justify-content: space-between; margin-top: 28px; font-size: 12px; }
