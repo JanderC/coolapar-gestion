@@ -956,6 +956,7 @@ const RegistroLeche = () => {
             <td class="num"><strong>${p.total_litros}</strong>${extras.length ? `<span class="menor">${extras.join(' · ')}</span>` : ''}</td>
             <td class="num">${formatearMontoEnMoneda(p.precio_litro, p.moneda)}</td>
             <td class="num"><strong>${formatearMontoEnMoneda(p.total_pagar, p.moneda)}</strong></td>
+            <td class="firma-dia"></td>
           </tr>`;
       })
       .join('');
@@ -987,6 +988,7 @@ const RegistroLeche = () => {
           <th class="num">Total litros</th>
           <th class="num">Precio/L</th>
           <th class="num">Total a pagar</th>
+          <th>Firma</th>
         </tr>
       </thead>
       <tbody>${cuerpo}</tbody>
@@ -995,6 +997,7 @@ const RegistroLeche = () => {
           <th>Litros por día</th>
           ${totalesDia}
           <th class="num">${resumen.totales.total_litros}</th>
+          <th></th>
           <th></th>
           <th></th>
         </tr>
