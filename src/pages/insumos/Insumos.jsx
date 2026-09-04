@@ -39,6 +39,15 @@ const formInsumoVacio = {
   moneda_referencia: 'BS',
   stock_minimo: '',
   proveedor: '',
+  // Conversión: se compra en una unidad, se usa en otra (ej. "pote" de
+  // 1000 ml). Ambos vacíos = sin conversión, todo se maneja siempre en
+  // unidad_medida, como hasta ahora.
+  unidad_compra: '',
+  factor_conversion: '',
+  // Dosis por litros de leche: la usa la calculadora del módulo de
+  // Producción. Ambos vacíos = sin dosis configurada para este insumo.
+  dosis_cantidad: '',
+  dosis_referencia_litros: '',
 };
 
 const formMovimientoVacio = {
@@ -47,6 +56,10 @@ const formMovimientoVacio = {
   // inicial / ajuste (lo que ya estaba en el depósito, sin precio).
   es_ajuste: false,
   cantidad: '',
+  // Si el insumo tiene unidad de compra configurada, esto deja anotar
+  // "cantidad" y "precio_unitario" en esa unidad (ej. "1 pote") en vez
+  // de la unidad base; el backend hace la conversión.
+  en_unidad_compra: false,
   precio_unitario: '',
   moneda: 'BS',
   fecha: hoy(),
@@ -222,6 +235,10 @@ const Insumos = () => {
       moneda_referencia: i.moneda_referencia || 'BS',
       stock_minimo: i.stock_minimo ?? '',
       proveedor: i.proveedor || '',
+      unidad_compra: i.unidad_compra || '',
+      factor_conversion: i.factor_conversion ?? '',
+      dosis_cantidad: i.dosis_cantidad ?? '',
+      dosis_referencia_litros: i.dosis_referencia_litros ?? '',
     });
     setErrorFormInsumo('');
     setMostrarModalInsumo(true);
@@ -233,6 +250,18 @@ const Insumos = () => {
     if (!formInsumo.nombre.trim()) return setErrorFormInsumo('Escriba el nombre del producto.');
     if (!formInsumo.unidad_medida) return setErrorFormInsumo('Elija en qué se mide este producto.');
 
+    const tieneUnidadCompra = !vacio(formInsumo.unidad_compra);
+    const tieneFactor = !vacio(formInsumo.factor_conversion);
+    if (tieneUnidadCompra !== tieneFactor) {
+      return setErrorFormInsumo('Complete la unidad de compra y su equivalencia juntas, o deje las dos vacías.');
+    }
+
+    const tieneDosis = !vacio(formInsumo.dosis_cantidad);
+    const tieneReferenciaDosis = !vacio(formInsumo.dosis_referencia_litros);
+    if (tieneDosis !== tieneReferenciaDosis) {
+      return setErrorFormInsumo('Complete la dosis y los litros de referencia juntos, o deje los dos vacíos.');
+    }
+
     const payload = {
       nombre: formInsumo.nombre.trim(),
       unidad_medida: formInsumo.unidad_medida,
@@ -242,6 +271,10 @@ const Insumos = () => {
       moneda_referencia: formInsumo.moneda_referencia,
       stock_minimo: vacio(formInsumo.stock_minimo) ? null : Number(formInsumo.stock_minimo),
       proveedor: vacio(formInsumo.proveedor) ? null : formInsumo.proveedor.trim(),
+      unidad_compra: tieneUnidadCompra ? formInsumo.unidad_compra.trim() : null,
+      factor_conversion: tieneFactor ? Number(formInsumo.factor_conversion) : null,
+      dosis_cantidad: tieneDosis ? Number(formInsumo.dosis_cantidad) : null,
+      dosis_referencia_litros: tieneReferenciaDosis ? Number(formInsumo.dosis_referencia_litros) : null,
     };
 
     const cantidadInicial = vacio(formInsumo.cantidad_inicial) ? 0 : Number(formInsumo.cantidad_inicial);
@@ -344,6 +377,7 @@ const Insumos = () => {
       tipo: formMovimiento.tipo,
       es_ajuste: formMovimiento.es_ajuste,
       cantidad,
+      en_unidad_compra: enUnidadCompra,
       precio_unitario: esCompra && !vacio(formMovimiento.precio_unitario) ? Number(formMovimiento.precio_unitario) : null,
       moneda: esCompra ? formMovimiento.moneda : null,
       fecha: formMovimiento.fecha,
@@ -443,7 +477,7 @@ const Insumos = () => {
 
   const cambiarOpcionMovimiento = (valor) => {
     if (valor === 'consumo') {
-      setFormMovimiento({ ...formMovimiento, tipo: 'salida', es_ajuste: false, precio_unitario: '' });
+      setFormMovimiento({ ...formMovimiento, tipo: 'salida', es_ajuste: false, precio_unitario: '', en_unidad_compra: false });
     } else if (valor === 'compra') {
       setFormMovimiento({ ...formMovimiento, tipo: 'entrada', es_ajuste: false });
     } else {
@@ -451,6 +485,15 @@ const Insumos = () => {
     }
   };
   const unidadForm = insumo?.unidad_medida || '';
+  // Solo tiene sentido en entradas, y solo si el insumo tiene configurada
+  // una unidad de compra con su equivalencia.
+  const puedeUsarUnidadCompra = tipoEsEntrada && !!insumo?.unidad_compra && !vacio(insumo?.factor_conversion);
+  const enUnidadCompra = puedeUsarUnidadCompra && formMovimiento.en_unidad_compra;
+  const unidadCantidadForm = enUnidadCompra ? insumo.unidad_compra : unidadForm;
+  const equivalenciaTexto =
+    enUnidadCompra && !vacio(formMovimiento.cantidad) && !Number.isNaN(Number(formMovimiento.cantidad))
+      ? `= ${(Number(formMovimiento.cantidad) * Number(insumo.factor_conversion)).toFixed(2)} ${unidadForm}`
+      : '';
 
   return (
     <div>
@@ -961,6 +1004,61 @@ const Insumos = () => {
                 placeholder="A quién se le compra"
               />
             </Form.Group>
+
+            <hr />
+
+            <Form.Group className="mb-3">
+              <Form.Label>Se compra en otra unidad (opcional)</Form.Label>
+              <InputGroup>
+                <Form.Control
+                  value={formInsumo.unidad_compra}
+                  onChange={(e) => setFormInsumo({ ...formInsumo, unidad_compra: e.target.value })}
+                  placeholder="Ej: pote, saco, caja..."
+                />
+                <InputGroup.Text>=</InputGroup.Text>
+                <Form.Control
+                  type="number"
+                  min="0"
+                  step="0.0001"
+                  value={formInsumo.factor_conversion}
+                  onChange={(e) => setFormInsumo({ ...formInsumo, factor_conversion: e.target.value })}
+                  placeholder="0"
+                />
+                <InputGroup.Text>{formInsumo.unidad_medida || 'unidad'}</InputGroup.Text>
+              </InputGroup>
+              <Form.Text className="text-muted">
+                Ej: "pote" = 1000 {formInsumo.unidad_medida || 'ml'}. Al registrar una compra podrá anotarla en potes
+                y el sistema la convierte solo — el inventario sigue guardándose en {formInsumo.unidad_medida || 'la unidad de arriba'}.
+              </Form.Text>
+            </Form.Group>
+
+            <Form.Group>
+              <Form.Label>Dosis por litros de leche (opcional)</Form.Label>
+              <InputGroup>
+                <Form.Control
+                  type="number"
+                  min="0"
+                  step="0.0001"
+                  value={formInsumo.dosis_cantidad}
+                  onChange={(e) => setFormInsumo({ ...formInsumo, dosis_cantidad: e.target.value })}
+                  placeholder="0"
+                />
+                <InputGroup.Text>{formInsumo.unidad_medida || 'unidad'} por cada</InputGroup.Text>
+                <Form.Control
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formInsumo.dosis_referencia_litros}
+                  onChange={(e) => setFormInsumo({ ...formInsumo, dosis_referencia_litros: e.target.value })}
+                  placeholder="0"
+                />
+                <InputGroup.Text>litros de leche</InputGroup.Text>
+              </InputGroup>
+              <Form.Text className="text-muted">
+                Ej: 10 {formInsumo.unidad_medida || 'ml'} por cada 100 litros. Producción va a usar esto para sugerir
+                la cantidad al armar un lote — el operador siempre puede ajustarla antes de guardar.
+              </Form.Text>
+            </Form.Group>
           </Modal.Body>
           <Modal.Footer>
             <Button variant="light" onClick={() => setMostrarModalInsumo(false)}>
@@ -1009,6 +1107,16 @@ const Insumos = () => {
 
             <Form.Group className="mb-3">
               <Form.Label>Cantidad</Form.Label>
+              {puedeUsarUnidadCompra && (
+                <Form.Check
+                  type="switch"
+                  id="movimiento-en-unidad-compra"
+                  className="mb-2"
+                  label={`Anotar en ${insumo.unidad_compra} (en vez de ${unidadForm})`}
+                  checked={formMovimiento.en_unidad_compra}
+                  onChange={(e) => setFormMovimiento({ ...formMovimiento, en_unidad_compra: e.target.checked })}
+                />
+              )}
               <InputGroup>
                 <Form.Control
                   autoFocus
@@ -1019,13 +1127,14 @@ const Insumos = () => {
                   onChange={(e) => setFormMovimiento({ ...formMovimiento, cantidad: e.target.value })}
                   placeholder="0"
                 />
-                <InputGroup.Text>{unidadForm || 'unidad'}</InputGroup.Text>
+                <InputGroup.Text>{unidadCantidadForm || 'unidad'}</InputGroup.Text>
               </InputGroup>
+              {equivalenciaTexto && <Form.Text className="text-muted">{equivalenciaTexto}</Form.Text>}
             </Form.Group>
 
             {tipoEsEntrada && !formMovimiento.es_ajuste && (
               <Form.Group className="mb-3">
-                <Form.Label>Precio por {unidadForm || 'unidad'}</Form.Label>
+                <Form.Label>Precio por {unidadCantidadForm || 'unidad'}</Form.Label>
                 <InputGroup>
                   <Form.Select
                     value={formMovimiento.moneda}
