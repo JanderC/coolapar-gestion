@@ -197,7 +197,13 @@ const Ruteros = () => {
 
   const cuerpoHoja = () => ({
     rutero_id: Number(ruteroId),
-    semana_id: hoja.semana.id,
+    // Si la semana ya existe (se abrió del historial o ya se guardó una
+    // vez en esta sesión), se manda su id. Si todavía no existe
+    // (hoja.semana.id === null: es la primera vez que se guarda), se
+    // manda el rango de fechas para que el backend la cree recién ahí.
+    ...(hoja.semana.id
+      ? { semana_id: hoja.semana.id }
+      : { fecha_inicio: hoja.semana.fecha_inicio, dia_fin: hoja.semana.dia_fin }),
     precio_litro: aNumero(precioLitro, 0),
     moneda,
     dias: dias.map((d) => ({
@@ -235,10 +241,13 @@ const Ruteros = () => {
     setGuardando(true);
     setError('');
     try {
-      await ruterosApi.guardarHojaRutero(cuerpoHoja());
+      // Se lee el semana_id de LA RESPUESTA del guardado, no de `hoja` en
+      // memoria: si esta era la primera vez que se guardaba esa semana,
+      // `hoja.semana.id` todavía estaría en null en este punto.
+      const datosGuardados = desempacar(await ruterosApi.guardarHojaRutero(cuerpoHoja()));
       await ruterosApi.registrarPagoRutero({
         rutero_id: Number(ruteroId),
-        semana_id: hoja.semana.id,
+        semana_id: datosGuardados.semana.id,
         marcar_pagado: true,
       });
       setAviso('Pago registrado.');
