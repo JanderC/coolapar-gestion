@@ -1981,7 +1981,7 @@ const RegistroLeche = () => {
           <Button variant="light" onClick={() => setMostrarModalImprimir(false)}>
             Cancelar
           </Button>
-          <Button variant="success" onClick={imprimirSeleccionados} disabled={imprimiendo}>
+          <Button variant="success" onClick={() => imprimirSeleccionados()} disabled={imprimiendo}>
             {imprimiendo ? 'Preparando...' : `Imprimir (${seleccionImprimir.length})`}
           </Button>
         </Modal.Footer>
