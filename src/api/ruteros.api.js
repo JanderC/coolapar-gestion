@@ -36,3 +36,10 @@ export const historialRutero = (rutero_id, filtros = {}) =>
 
 export const listarPagosRuteros = (filtros = {}) =>
   axiosClient.get(`${BASE}/pagos`, { params: filtros }).then((r) => r.data);
+
+export const eliminarSemanaRutero = (id, forzar = false) =>
+  axiosClient.delete(`/ruteros/semanas/${id}`, forzar ? { params: { forzar: 'true' } } : undefined);
+ 
+export const limpiarSemanasVaciasRutero = (ruteroId) =>
+  axiosClient.delete('/ruteros/semanas/vacias', ruteroId ? { params: { rutero_id: ruteroId } } : undefined);
+ 

@@ -56,6 +56,8 @@ const Ruteros = () => {
   const [filtroPago, setFiltroPago] = useState('');
   const [semanasMarcadas, setSemanasMarcadas] = useState([]);
   const [imprimiendo, setImprimiendo] = useState(false);
+  const [eliminandoSemanaId, setEliminandoSemanaId] = useState(null);
+  const [limpiando, setLimpiando] = useState(false);
   const [cargandoHoja, setCargandoHoja] = useState(false);
   const [guardando, setGuardando] = useState(false);
 
@@ -155,6 +157,73 @@ const Ruteros = () => {
 
   const alternarTodasSemanas = () =>
     setSemanasMarcadas(todasMarcadas ? [] : historial.map((s) => s.id));
+
+  // Semanas que quedaron sin litros cargados; suele pasar con las que se
+  // crearon antes de corregir el bug de auto-guardado.
+  const hayVacias = historial.some((s) => s.total_litros <= 0);
+
+  /** Quita del historial (y de la pantalla, si es la que está abierta)
+   * la semana borrada. */
+  const quitarSemanaDeLaVista = (id) => {
+    if (String(hoja?.semana?.id) === String(id)) {
+      setSemanaId(null);
+      setHoja(null);
+      setDias([]);
+    }
+    setSemanasMarcadas((prev) => prev.filter((x) => x !== id));
+  };
+
+  const eliminarSemana = async (s) => {
+    if (
+      !window.confirm(
+        `¿Eliminar la semana del ${formatoCorto(s.fecha_inicio)} al ${formatoCorto(s.fecha_fin)}? Esta acción no se puede deshacer.`
+      )
+    ) {
+      return;
+    }
+    setEliminandoSemanaId(s.id);
+    setError('');
+    try {
+      await ruterosApi.eliminarSemanaRutero(s.id);
+      quitarSemanaDeLaVista(s.id);
+      await cargarHistorial();
+    } catch (err) {
+      // 409: la semana tiene pago registrado, está cerrada o algún otro
+      // módulo tiene datos colgando de ella. Se ofrece forzar el borrado.
+      if (err.response?.status === 409) {
+        const mensaje = err.response?.data?.message || 'Esta semana tiene datos asociados.';
+        if (window.confirm(`${mensaje}\n\n¿Eliminarla de todas formas?`)) {
+          try {
+            await ruterosApi.eliminarSemanaRutero(s.id, true);
+            quitarSemanaDeLaVista(s.id);
+            await cargarHistorial();
+          } catch (err2) {
+            setError(err2.response?.data?.message || 'No se pudo eliminar la semana.');
+          }
+        }
+      } else {
+        setError(err.response?.data?.message || 'No se pudo eliminar la semana.');
+      }
+    } finally {
+      setEliminandoSemanaId(null);
+    }
+  };
+
+  const limpiarVacias = async () => {
+    if (!window.confirm('¿Eliminar todas las semanas vacías (sin litros cargados) de este rutero?')) return;
+    setLimpiando(true);
+    setError('');
+    try {
+      const datos = desempacar(await ruterosApi.limpiarSemanasVaciasRutero(ruteroId));
+      setAviso(`${datos?.eliminadas ?? 0} semana(s) vacía(s) eliminada(s).`);
+      if (hoja?.semana?.id && hoja.totales?.total_litros <= 0) quitarSemanaDeLaVista(hoja.semana.id);
+      await cargarHistorial();
+    } catch (err) {
+      setError(err.response?.data?.message || 'No se pudieron eliminar las semanas vacías.');
+    } finally {
+      setLimpiando(false);
+    }
+  };
 
   useEffect(() => {
     cargarHistorial();
@@ -1055,6 +1124,11 @@ const Ruteros = () => {
                 >
                   {imprimiendo ? 'Preparando...' : `Imprimir (${semanasMarcadas.length})`}
                 </Button>
+                {hayVacias && (
+                  <Button size="sm" variant="outline-danger" onClick={limpiarVacias} disabled={limpiando}>
+                    {limpiando ? 'Quitando...' : 'Quitar semanas vacías'}
+                  </Button>
+                )}
               </div>
             </Card.Header>
 
@@ -1133,6 +1207,14 @@ const Ruteros = () => {
                           </Button>
                           <Button size="sm" variant="outline-secondary" onClick={() => setSemanaId(s.id)}>
                             Abrir
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline-danger"
+                            onClick={() => eliminarSemana(s)}
+                            disabled={eliminandoSemanaId === s.id}
+                          >
+                            {eliminandoSemanaId === s.id ? 'Eliminando...' : 'Eliminar'}
                           </Button>
                         </div>
                       </td>
