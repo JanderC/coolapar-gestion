@@ -1029,6 +1029,7 @@ const RegistroLeche = () => {
   const [semanaImprimirId, setSemanaImprimirId] = useState('pantalla');
   const [busquedaImprimir, setBusquedaImprimir] = useState('');
   const [cargandoSemanasImprimir, setCargandoSemanasImprimir] = useState(false);
+  const [buscandoTodosImprimir, setBuscandoTodosImprimir] = useState(false);
 
   const abrirModalImprimir = async () => {
     setSeleccionImprimir(productorId ? [String(productorId)] : []);
@@ -1087,8 +1088,15 @@ const RegistroLeche = () => {
 
   const desmarcarTodos = () => setSeleccionImprimir([]);
 
-  const imprimirSeleccionados = async () => {
-    if (seleccionImprimir.length === 0) {
+  /**
+   * Imprime lo marcado. Si se le pasa `idsForzados` (por ejemplo desde el
+   * botón "Buscar e imprimir todos los de esta semana"), imprime esos ids
+   * en lugar de esperar a que `seleccionImprimir` termine de actualizarse
+   * en pantalla (el setState es asíncrono y llegaría tarde).
+   */
+  const imprimirSeleccionados = async (idsForzados) => {
+    const seleccionActual = idsForzados || seleccionImprimir;
+    if (seleccionActual.length === 0) {
       setErrorImprimir('Marque al menos un productor.');
       return;
     }
@@ -1103,7 +1111,7 @@ const RegistroLeche = () => {
       // El orden de los bloques sigue el orden alfabético de la lista.
       const idsOrdenados = productoresOrdenados
         .map((p) => String(p.id))
-        .filter((id) => seleccionImprimir.includes(id));
+        .filter((id) => seleccionActual.includes(id));
 
       const hojas = await Promise.all(
         idsOrdenados.map((id) =>
@@ -1125,6 +1133,40 @@ const RegistroLeche = () => {
       setErrorImprimir(err.response?.data?.message || 'No se pudo preparar la impresión.');
     } finally {
       setImprimiendo(false);
+    }
+  };
+
+  /**
+   * Busca en el servidor todos los productores que tienen leche cargada
+   * en la semana elegida (mismo criterio que usa el cuadro resumen), los
+   * marca en la lista de arriba y los manda a imprimir de una vez.
+   */
+  const buscarEImprimirTodosDeLaSemana = async () => {
+    if (!rangoImprimir.inicio || !rangoImprimir.fin) {
+      setErrorImprimir('Elija la semana que quiere imprimir.');
+      return;
+    }
+    setBuscandoTodosImprimir(true);
+    setErrorImprimir('');
+    try {
+      const datos = desempacar(
+        await registroApi.resumenSemana({ fecha_inicio: rangoImprimir.inicio, fecha_fin: rangoImprimir.fin })
+      );
+      const idsEncontrados = (datos?.productores || []).map((p) => String(p.productor_id));
+
+      if (idsEncontrados.length === 0) {
+        setErrorImprimir('Ningún productor tiene leche cargada en esa semana.');
+        return;
+      }
+
+      // Se marcan en pantalla (por si la impresión falla, el usuario ve
+      // qué quedó seleccionado) y se imprime con esos mismos ids.
+      setSeleccionImprimir(idsEncontrados);
+      await imprimirSeleccionados(idsEncontrados);
+    } catch (err) {
+      setErrorImprimir(err.response?.data?.message || 'No se pudieron buscar los productores de esa semana.');
+    } finally {
+      setBuscandoTodosImprimir(false);
     }
   };
 
@@ -1875,6 +1917,18 @@ const RegistroLeche = () => {
               {formatoCorto(rangoImprimir.inicio)} a {formatoCorto(rangoImprimir.fin)}.
             </Form.Text>
           </Form.Group>
+
+          <div className="d-grid mb-3">
+            <Button
+              variant="outline-primary"
+              onClick={buscarEImprimirTodosDeLaSemana}
+              disabled={buscandoTodosImprimir || imprimiendo || !rangoImprimir.inicio || !rangoImprimir.fin}
+            >
+              {buscandoTodosImprimir
+                ? 'Buscando productores de la semana...'
+                : 'Buscar e imprimir todos los de esta semana'}
+            </Button>
+          </div>
 
           <Form.Group className="mb-2">
             <Form.Label className="small text-muted mb-1">Productores en la hoja</Form.Label>
